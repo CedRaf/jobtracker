@@ -169,9 +169,13 @@ class SheetSink:
         jobs = [{k: v for k, v in r.items() if k not in NOT_IN_SHEET} for r in kept]
         result = self.post(self.secrets, **{f"{p}jobs": jobs, f"{p}filtered": filtered})
         if f"{p}added" not in result:
-            # An older Code.gs ignores keys it doesn't know, so nothing was written.
-            raise RuntimeError("The Apps Script web app didn't recognise these jobs. Paste the "
-                               "latest apps_script/Code.gs and deploy a new version.")
+            # Either an older Code.gs that ignores these keys, or the request
+            # reached doGet instead of doPost (a redirect turned the POST into a
+            # GET, e.g. an http:// or /dev URL). Nothing was written either way.
+            raise RuntimeError(
+                f"The Apps Script web app's reply has no '{p}added' count, so nothing was written. "
+                "Check SHEET_WEBAPP_URL is exactly https://script.google.com/macros/s/<id>/exec, "
+                f"and that the deployed Code.gs is the latest. Reply: {str(result)[:200]}")
         log.info("Sheet updated: %s added, %s already there; filtered tab: %s added",
                  result.get(f"{p}added"), result.get(f"{p}skipped"), result.get(f"{p}filtered_added"))
 
