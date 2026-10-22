@@ -22,5 +22,6 @@
   "max_pages_per_search": 2,
   "delay_seconds": 2,
   "seen_ids_retention_days": 120,
-  "previous_employers": []
+  "previous_employers": [],
+  "outputs": ["sheet", "supabase"]
 }

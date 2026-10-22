@@ -1,12 +1,12 @@
 """
-LinkedIn junior developer scraper -> Google Sheet ("LinkedIn" tab).
+LinkedIn junior developer scraper -> Google Sheet ("LinkedIn" tab) and/or Supabase.
 
-Uses the same config.json searches, rules.py filters, secrets and Apps Script
-web app as scraper.py (JobStreet); only the job source and the sheet tabs differ.
+Uses the same config.json searches and outputs, rules.py filters and secrets
+as scraper.py (JobStreet); only the job source and the sheet tabs differ.
 
 Usage:
     python LinkedIn_Scraper.py              # normal run
-    python LinkedIn_Scraper.py --dry-run    # don't send to the sheet; write CSVs to output/
+    python LinkedIn_Scraper.py --dry-run    # don't send anywhere; write CSVs to output/
     python LinkedIn_Scraper.py --dry-run --limit 10   # quick test: only evaluate 10 new jobs
 
 Log: logs/linkedin.log
@@ -20,7 +20,7 @@ import requests
 import linkedin_api as api
 import rules
 import scraper
-from scraper import MANILA, ROOT, filtered_record, load_json, log, pause, repost_key
+from scraper import MANILA, ROOT, filtered_record, log, pause, repost_key
 
 SEEN_FILE = ROOT / "data" / "linkedin_seen_ids.json"
 LOG_FILE = ROOT / "logs" / "linkedin.log"
@@ -160,6 +160,7 @@ def evaluate_jobs(session, cfg, candidates, seen):
             "email_source": "description" if emails else "",
             "url": job["url"],
             "seniority": criteria.get("Seniority level", ""),
+            "description": description,
         })
         if n % 20 == 0:
             log.info("Evaluated %d/%d new jobs", n, len(candidates))
@@ -169,42 +170,7 @@ def evaluate_jobs(session, cfg, candidates, seen):
 
 
 def run(args):
-    cfg = load_json(scraper.CONFIG_FILE)
-    rules.configure(cfg)
-    secrets = scraper.load_secrets()
-    seen = load_json(SEEN_FILE, {})
-    session = api.new_session()
-
-    jobs = collect(session, cfg)
-    candidates = [j for j in jobs.values() if j["id"] not in seen]
-    log.info("%d unique jobs found, %d not seen before", len(jobs), len(candidates))
-    if args.limit:
-        candidates = candidates[:args.limit]
-
-    kept, filtered, expired = evaluate_jobs(session, cfg, candidates, seen)
-    repost_keys = [r.pop("repost_key") for r in kept]
-    log.info("New jobs kept: %d, filtered out: %d, expired: %d", len(kept), len(filtered), len(expired))
-
-    if args.dry_run:
-        scraper.write_csvs(kept, filtered, prefix="linkedin_")
-        log.info("Dry run: nothing sent to the sheet, seen list not updated.")
-        return
-    if not secrets.get("webapp_url") or not secrets.get("token"):
-        scraper.write_csvs(kept, filtered, prefix="linkedin_")
-        log.warning("secrets.json missing or incomplete; wrote CSVs instead of updating the sheet.")
-        return
-
-    if kept or filtered:
-        result = scraper.post_to_sheet(secrets, linkedin_jobs=kept, linkedin_filtered=filtered)
-        if "linkedin_added" not in result:
-            # An older Code.gs ignores these keys, so nothing was written.
-            raise RuntimeError("The Apps Script web app doesn't know about LinkedIn yet. Paste the "
-                               "new apps_script/Code.gs and deploy a new version.")
-        log.info("Sheet updated: %s added, %s already there; filtered tab: %s added",
-                 result.get("linkedin_added"), result.get("linkedin_skipped"),
-                 result.get("linkedin_filtered_added"))
-    scraper.save_seen(seen, [r["id"] for r in kept + filtered] + expired + repost_keys,
-                      cfg["seen_ids_retention_days"], SEEN_FILE)
+    scraper.scrape(args, "linkedin", api, collect, evaluate_jobs, SEEN_FILE, prefix="linkedin_")
 
 
 if __name__ == "__main__":

@@ -99,15 +99,23 @@ README.md
   - `html_to_text` leaves a trailing space before some line breaks. This is cosmetic.
 
 ### Phase 1: Database + dual-write
-- [ ] Create the Supabase project and write `supabase/migrations/001_init.sql` (tables, enum, trigger, RLS).
-- [ ] `scraper/sinks.py`:
-  - `SheetSink` wraps the current `post_to_sheet`.
-  - `SupabaseSink` upserts with `on_conflict=source,external_id` and `Prefer: resolution=ignore-duplicates`. Existing rows, and so your status and notes, are never overwritten, same rule as the sheet.
-- [ ] Add a `"outputs": ["sheet", "supabase"]` setting to `config.json`. Both scrapers write to every listed output, and one failing doesn't block the other.
-- [ ] Each run writes a `scrape_runs` row.
-- [ ] Add GitHub secrets `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
-- [ ] `scraper/import_sheet.py`: a one-off import of the Jobs, LinkedIn and both Filtered tabs (CSV export) so history and statuses carry over.
-- **Done when:** a scheduled run fills both the sheet and Supabase with the same new jobs.
+- [x] Create the Supabase project and write `supabase/migrations/20261022000000_init.sql` (tables, enums, triggers, RLS, column-level grants). Pushed with `npx supabase db push`.
+  - Dashboard access is limited to user ids in `app_users`. Add yours after your first login (Phase 2).
+- [x] `scraper/sinks.py`:
+  - `SheetSink` wraps `post_to_sheet` and strips the fields the sheet has no columns for (`description`, `repost_key`).
+  - `SupabaseSink` inserts through the REST API with `on_conflict=source,external_id` and `resolution=ignore-duplicates`. Existing rows, and so your status and notes, are never overwritten, the same rule as the sheet.
+  - Both scrapers now share one `scrape()` flow in `scraper.py`, and both pass the full job description through.
+- [x] `"outputs": ["sheet", "supabase"]` in `config.json`.
+  - Every output gets every run, even if another fails.
+  - If any output fails (or has no credentials), the run fails and jobs aren't marked as seen, so the next run retries them. Both outputs skip ids they already have, so retrying is safe.
+- [x] Each run writes a `scrape_runs` row: counts, the error if it failed, and the GitHub run id. Problems writing this log never fail the run.
+- [x] GitHub secrets `SUPABASE_URL` and `SUPABASE_SECRET_KEY` added, and passed to both scraper steps in `scraper.yml`. Local runs use the same names in `secrets.json` (see `secrets.example.json`).
+- [x] `scraper/import_sheet.py`: a one-off import of the sheet tabs, from their CSV exports. Statuses, notes, draft dates and `first_seen` carry over.
+- [x] Tests: `tests/test_sinks.py` (row conversion, REST client, retries, delivery and the run log, all with fake HTTP). 96 tests in total.
+- [ ] **Run the import** for each source, before using the dashboard:
+  - `python import_sheet.py --source jobstreet --jobs "Jobs.csv" --filtered "Filtered.csv"`
+  - `python import_sheet.py --source linkedin --jobs "LinkedIn.csv" --filtered "LinkedIn Filtered.csv"`
+- [ ] **Done when:** a scheduled run fills both the sheet and Supabase with the same new jobs. First check: a manual "Run workflow" on GitHub, then the new rows in Table Editor (`jobs`, `filtered_jobs`, `scrape_runs`).
 
 ### Phase 2: Dashboard MVP
 - [ ] Scaffold `web/` (Vite + React + TS + Tailwind) with a small data layer (`web/src/data/`). Components never call Supabase directly, which makes demo mode easy later.

@@ -1,13 +1,14 @@
 """
-JobStreet PH junior developer scraper -> Google Sheet (via Apps Script web app).
+JobStreet PH junior developer scraper -> Google Sheet and/or Supabase.
 
 Usage:
-    python scraper.py              # normal run (what Task Scheduler runs)
-    python scraper.py --dry-run    # don't send to the sheet; write CSVs to output/
+    python scraper.py              # normal run
+    python scraper.py --dry-run    # don't send anywhere; write CSVs to output/
     python scraper.py --dry-run --limit 10   # quick test: only evaluate 10 new jobs
 
-Settings: config.json (searches) and secrets.json (web app URL + token),
-or the SHEET_WEBAPP_URL / SHEET_TOKEN environment variables (GitHub Actions).
+Settings: config.json (searches, and "outputs": where jobs go) and secrets.json,
+or environment variables (GitHub Actions): SHEET_WEBAPP_URL / SHEET_TOKEN for
+the sheet, SUPABASE_URL / SUPABASE_SECRET_KEY for Supabase.
 Log: logs/scraper.log
 """
 
@@ -28,6 +29,7 @@ import requests
 
 import jobstreet_api as api
 import rules
+import sinks
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_FILE = ROOT / "config.json"
@@ -65,6 +67,9 @@ def load_secrets():
     # GitHub Actions passes these as environment variables instead of secrets.json.
     secrets["webapp_url"] = os.environ.get("SHEET_WEBAPP_URL") or secrets.get("webapp_url")
     secrets["token"] = os.environ.get("SHEET_TOKEN") or secrets.get("token")
+    secrets["supabase_url"] = os.environ.get("SUPABASE_URL") or secrets.get("supabase_url")
+    secrets["supabase_secret_key"] = (os.environ.get("SUPABASE_SECRET_KEY")
+                                      or secrets.get("supabase_secret_key"))
     return secrets
 
 
@@ -237,6 +242,7 @@ def evaluate_jobs(session, cfg, candidates, seen):
             "email": ", ".join(emails),
             "email_source": "description" if emails else "",
             "url": job["url"],
+            "description": description,
         })
         if n % 20 == 0:
             log.info("Evaluated %d/%d new jobs", n, len(candidates))
@@ -280,6 +286,7 @@ def write_csvs(kept, filtered, prefix=""):
     for name, rows in (("jobs", kept), ("filtered", filtered)):
         if not rows:
             continue
+        rows = [{k: v for k, v in r.items() if k not in sinks.NOT_IN_SHEET} for r in rows]
         path = OUTPUT_DIR / f"{prefix}{name}_{stamp}.csv"
         with path.open("w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
@@ -298,44 +305,52 @@ def save_seen(seen, new_ids, retention_days, path=SEEN_FILE):
     path.write_text(json.dumps(seen, indent=0), encoding="utf-8")
 
 
-def run(args):
+def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix=""):
+    """
+    One full run for one job source: search, evaluate, send to the outputs,
+    then mark the jobs as seen. prefix picks the sheet tabs and CSV names.
+    """
     cfg = load_json(CONFIG_FILE)
     rules.configure(cfg)
     secrets = load_secrets()
-    seen = load_json(SEEN_FILE, {})
-    session = api.new_session()
+    seen = load_json(seen_file, {})
 
-    jobs = collect(session, cfg)
-    candidates = [j for j in jobs.values() if j["id"] not in seen]
-    log.info("%d unique jobs found, %d not seen before", len(jobs), len(candidates))
-    if args.limit:
-        candidates = candidates[:args.limit]
+    with sinks.run_log(cfg, secrets, source, dry_run=args.dry_run) as stats:
+        session = api_module.new_session()
+        jobs = collect_fn(session, cfg)
+        candidates = [j for j in jobs.values() if j["id"] not in seen]
+        log.info("%d unique jobs found, %d not seen before", len(jobs), len(candidates))
+        if args.limit:
+            candidates = candidates[:args.limit]
 
-    kept, filtered, expired = evaluate_jobs(session, cfg, candidates, seen)
-    repost_keys = [r.pop("repost_key") for r in kept]
-    log.info("New jobs kept: %d, filtered out: %d, expired: %d", len(kept), len(filtered), len(expired))
+        kept, filtered, expired = evaluate_fn(session, cfg, candidates, seen)
+        log.info("New jobs kept: %d, filtered out: %d, expired: %d",
+                 len(kept), len(filtered), len(expired))
+        stats.update(found=len(jobs), evaluated=len(candidates), kept=len(kept),
+                     filtered=len(filtered), expired=len(expired))
 
-    if args.dry_run:
-        write_csvs(kept, filtered)
-        log.info("Dry run: nothing sent to the sheet, seen list not updated.")
-        return
-    if not secrets.get("webapp_url") or not secrets.get("token"):
-        write_csvs(kept, filtered)
-        log.warning("secrets.json missing or incomplete; wrote CSVs instead of updating the sheet.")
-        return
+        if args.dry_run:
+            write_csvs(kept, filtered, prefix)
+            log.info("Dry run: nothing sent anywhere, seen list not updated.")
+            return
+        outputs, missing = sinks.build_sinks(cfg, secrets, source, prefix, post_to_sheet)
+        if not outputs:
+            write_csvs(kept, filtered, prefix)
+            log.warning("No credentials for any output (%s); wrote CSVs instead.", ", ".join(missing))
+            return
+        sinks.deliver(outputs, missing, kept, filtered)
+        save_seen(seen, [r["id"] for r in kept + filtered] + expired + [r["repost_key"] for r in kept],
+                  cfg["seen_ids_retention_days"], seen_file)
 
-    if kept or filtered:
-        result = post_to_sheet(secrets, jobs=kept, filtered=filtered)
-        log.info("Sheet updated: %s added, %s already there; filtered tab: %s added",
-                 result.get("added"), result.get("skipped"), result.get("filtered_added"))
-    save_seen(seen, [r["id"] for r in kept + filtered] + expired + repost_keys,
-              cfg["seen_ids_retention_days"])
+
+def run(args):
+    scrape(args, "jobstreet", api, collect, evaluate_jobs, SEEN_FILE)
 
 
 def main(run_fn=run, log_file=LOG_FILE, doc=__doc__):
     parser = argparse.ArgumentParser(description=doc.split("\n\n")[0])
     parser.add_argument("--dry-run", action="store_true",
-                        help="write CSVs to output/ instead of sending to the sheet")
+                        help="write CSVs to output/ instead of sending to the outputs")
     parser.add_argument("--limit", type=int, default=0,
                         help="only evaluate this many new jobs (for testing)")
     args = parser.parse_args()

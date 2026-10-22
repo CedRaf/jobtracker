@@ -55,6 +55,8 @@ jobs:
         env:
           SHEET_WEBAPP_URL: ${{ secrets.SHEET_WEBAPP_URL }}
           SHEET_TOKEN: ${{ secrets.SHEET_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           LIMIT: ${{ inputs.limit }}
         working-directory: scraper
         run: python scraper.py ${LIMIT:+--limit "$LIMIT"}
@@ -65,6 +67,8 @@ jobs:
         env:
           SHEET_WEBAPP_URL: ${{ secrets.SHEET_WEBAPP_URL }}
           SHEET_TOKEN: ${{ secrets.SHEET_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           LIMIT: ${{ inputs.limit }}
         working-directory: scraper
         run: python LinkedIn_Scraper.py ${LIMIT:+--limit "$LIMIT"}
