@@ -115,7 +115,9 @@ README.md
 - [ ] **Run the import** for each source, before using the dashboard:
   - `python import_sheet.py --source jobstreet --jobs "Jobs.csv" --filtered "Filtered.csv"`
   - `python import_sheet.py --source linkedin --jobs "LinkedIn.csv" --filtered "LinkedIn Filtered.csv"`
-- [ ] **Done when:** a scheduled run fills both the sheet and Supabase with the same new jobs. First check: a manual "Run workflow" on GitHub, then the new rows in Table Editor (`jobs`, `filtered_jobs`, `scrape_runs`).
+- [x] **Done when:** a run fills both the sheet and Supabase with the same new jobs. Verified 2026-10-22 with manual runs: `jobs`, `filtered_jobs` and `scrape_runs` filled from both sources, and a failed output was recorded in `scrape_runs.error`.
+  - The first runs found two problems, now fixed: the `SUPABASE_URL` secret had `/rest/v1` on the end (the client now accepts either form), and a one-off Sheet reply without counts (the error now prints the reply if it happens again).
+  - A cancelled run leaves its `scrape_runs` row without `finished_at`. Phase 3's health panel should show those as "interrupted".
 
 ### Phase 2: Dashboard MVP
 - [ ] Scaffold `web/` (Vite + React + TS + Tailwind) with a small data layer (`web/src/data/`). Components never call Supabase directly, which makes demo mode easy later.
