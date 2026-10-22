@@ -91,7 +91,10 @@ def filtered_row(record, source):
 
 class SupabaseClient:
     def __init__(self, url, key, session=None):
-        self.base = url.rstrip("/") + "/rest/v1"
+        # Accept the project URL with or without the /rest/v1 suffix the
+        # dashboard's Data API page shows.
+        url = url.strip().rstrip("/")
+        self.base = url if url.endswith("/rest/v1") else url + "/rest/v1"
         self.session = session or requests.Session()
         self.session.headers["apikey"] = key
         # New-style keys (sb_secret_...) go in the apikey header only; legacy

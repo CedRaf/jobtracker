@@ -106,6 +106,17 @@ def test_new_style_key_goes_in_apikey_header_only():
     assert session.headers == {"apikey": "sb_secret_abc"}
 
 
+@pytest.mark.parametrize("url", [
+    "https://x.supabase.co",
+    "https://x.supabase.co/",
+    "https://x.supabase.co/rest/v1",
+    "https://x.supabase.co/rest/v1/ ",
+])
+def test_url_with_or_without_rest_path(url):
+    client = sinks.SupabaseClient(url, "sb_secret_abc", FakeSession([]))
+    assert client.base == "https://x.supabase.co/rest/v1"
+
+
 def test_legacy_key_also_goes_in_authorization():
     session = FakeSession([])
     sinks.SupabaseClient("https://x.supabase.co", "eyJlegacy", session)
