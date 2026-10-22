@@ -85,12 +85,18 @@ README.md
 ## Phases
 
 ### Phase 0: Groundwork (no behaviour change)
-- [ ] Move the Python files into `scraper/` and update `scraper.yml` paths.
-- [ ] Add `scraper/tests/`:
-  - Unit tests for `rules.py`: title drops, location rule, `required_years`, night shift / US hours, email and form extraction, skill scoring.
-  - A **regression test** built from the exported sheet rows: the 24 rows you marked Skip must still be dropped, and the applied one kept. Store the fixture as anonymised JSON.
-- [ ] Add `ci.yml`, which runs ruff + pytest on every push and PR.
-- [ ] Privacy pass before the repo goes public (see Decisions below). `Plan.md`, `Code.gs` (email body, names) and `config.json` contain personal details.
+- [x] Move the Python files into `scraper/` and update `scraper.yml` paths.
+- [x] Add `scraper/tests/` (74 tests, run with `pytest` from `scraper/`):
+  - `test_rules.py`: unit tests for title drops, the location rule, `required_years`, night shift / US hours / language drops, flags, skill scoring, and email/form extraction.
+  - `test_regression.py`: replays the title and location rules on 57 labelled jobs from the sheet export (`fixtures/labelled_jobs.json`, with only title, location and work arrangement kept).
+    - All 11 Applied/Rejected jobs must be kept.
+    - At least 20 of the 46 Skip jobs must still be dropped (`MIN_SKIPS_CAUGHT`; raise it when the rules improve).
+    - The export has no job descriptions, so the description rules are only covered by the unit tests. Phase 1 stores descriptions, which allows a fuller regression set later.
+- [x] Add `ci.yml`, which runs ruff + pytest on every push and PR. Ruff settings are in `scraper/pyproject.toml`, and dev dependencies in `scraper/requirements-dev.txt`.
+- [x] Privacy pass: personal details removed from `Code.gs` (now Script Properties), `TOKEN_SETUP.md` and `rules.py` (now `previous_employers` in `config.json`).
+- **Rule gaps found while testing** (left unchanged; Phase 0 changes no behaviour):
+  - The night-shift negation only works when "no/not/without" comes right before the match. "Not a night shift role" is still dropped.
+  - `html_to_text` leaves a trailing space before some line breaks. This is cosmetic.
 
 ### Phase 1: Database + dual-write
 - [ ] Create the Supabase project and write `supabase/migrations/001_init.sql` (tables, enum, trigger, RLS).

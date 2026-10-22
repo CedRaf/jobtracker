@@ -1,0 +1,16 @@
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes and bugbear: catch real mistakes without restyling the code.
+select = ["E", "F", "W", "B"]
+# I = re.IGNORECASE in rules.py is used on purpose.
+ignore = ["E741"]
+
+[tool.ruff.lint.per-file-ignores]
+# GraphQL queries copied as-is from JobStreet.
+"jobstreet_api.py" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

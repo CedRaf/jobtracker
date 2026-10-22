@@ -268,7 +268,7 @@ def post_to_sheet(secrets, **records):
     except ValueError:
         raise RuntimeError(
             "Web app did not return JSON. Check the deployment's access is 'Anyone'. "
-            f"Response starts with: {resp.text[:200]!r}")
+            f"Response starts with: {resp.text[:200]!r}") from None
     if not data.get("ok"):
         raise RuntimeError(f"Web app error: {data.get('error')}")
     return data
