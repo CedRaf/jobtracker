@@ -1,0 +1,20 @@
+# Private: never commit
+secrets.json
+resume.pdf
+
+# Local run state and output
+.venv/
+__pycache__/
+logs/
+data/
+output/
+
+# Sheet exports
+*.csv
+
+# Environment files and the web app build
+.env
+.env.*
+!.env.example
+node_modules/
+web/dist/
