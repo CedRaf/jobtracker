@@ -1,5 +1,5 @@
 import { createClient, type User } from '@supabase/supabase-js'
-import type { AppUser, DataApi, FilteredJob, Job, JobKey, ScrapeRun } from './types'
+import type { AppUser, DataApi, FilteredJob, Job, JobKey, ScrapeRun, StatusChange } from './types'
 
 // Everything except the description, which is only loaded for the open job.
 const JOB_COLUMNS = [
@@ -11,6 +11,10 @@ const JOB_COLUMNS = [
 
 const FILTERED_COLUMNS =
   'source,external_id,title,company,location,work_arrangements,search_terms,reason,url,first_seen'
+
+const RUN_COLUMNS = 'source,started_at,finished_at,found,evaluated,kept,filtered,expired,error,github_run_id'
+
+const HISTORY_COLUMNS = 'job_source,job_external_id,from_status,to_status,changed_at'
 
 // PostgREST returns at most 1000 rows per request by default.
 const PAGE = 1000
@@ -90,13 +94,36 @@ export function createSupabaseApi(url: string, publishableKey: string): DataApi 
       // Two sources, so the newest few rows always include both.
       const { data, error } = await supabase
         .from('scrape_runs')
-        .select('source,started_at,finished_at,kept,error')
+        .select(RUN_COLUMNS)
         .order('started_at', { ascending: false })
         .limit(10)
         .returns<ScrapeRun[]>()
       if (error) throw error
       return latestPerSource(data ?? [])
     },
+
+    listScrapeRuns(days) {
+      const since = new Date(Date.now() - days * 86_400_000).toISOString()
+      return fetchAll<ScrapeRun>((from, to) =>
+        supabase
+          .from('scrape_runs')
+          .select(RUN_COLUMNS)
+          .gte('started_at', since)
+          .order('started_at', { ascending: false })
+          .range(from, to)
+          .returns<ScrapeRun[]>(),
+      )
+    },
+
+    listStatusHistory: () =>
+      fetchAll<StatusChange>((from, to) =>
+        supabase
+          .from('status_history')
+          .select(HISTORY_COLUMNS)
+          .order('changed_at', { ascending: true })
+          .range(from, to)
+          .returns<StatusChange[]>(),
+      ),
 
     auth: {
       async getUser() {

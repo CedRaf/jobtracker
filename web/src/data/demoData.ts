@@ -1,5 +1,5 @@
 // Made-up sample data for demo mode. No real listings or companies.
-import type { FilteredJob, Job, JobStatus, ScrapeRun } from './types'
+import type { FilteredJob, Job, JobStatus, ScrapeRun, StatusChange } from './types'
 
 const HOUR = 3_600_000
 const ago = (hours: number) => new Date(Date.now() - hours * HOUR).toISOString()
@@ -36,10 +36,46 @@ const SEEDS: Seed[] = [
   { title: 'Backend Developer (Node.js)', company: 'Cascade Logistics', location: 'Cebu City, Cebu', arrangements: ['On-site'], score: 11, skills: ['Node.js', 'Express', 'MySQL'], missing: ['Docker'], status: 'applied', hoursAgo: 200 },
 ]
 
+// Older, already-triaged jobs (9–30 days ago), so the analytics have a month to chart.
+const OLDER_TITLES = [
+  'Junior Software Developer', 'Associate Developer', 'Junior Frontend Developer', 'Web Developer',
+  'Junior Backend Engineer', 'Software Engineer I', 'Junior .NET Developer', 'Junior React Developer',
+  'Graduate Software Engineer', 'Junior QA Automation Engineer',
+]
+const OLDER_COMPANIES = [
+  'Coral Bay Systems', 'Islandsoft', 'Bright Harbor', 'Tandem Labs', 'Mactan Digital', 'Northpeak',
+  'Sugbo Tech', 'Lighthouse Apps', 'Vista Ledger', 'Copperleaf',
+]
+const SKILL_POOL = ['JavaScript', 'TypeScript', 'React', 'Node.js', 'C#', '.NET', 'SQL', 'PostgreSQL', 'Python', 'Git', 'REST API', 'MySQL']
+const OTHER_POOL = ['PHP', 'Laravel', 'Angular', 'Vue', 'Docker', 'AWS', 'Java', 'Next.js']
+const OLDER_STATUSES: JobStatus[] = [
+  'skip', 'skip', 'skip', 'skip', 'applied', 'applied', 'rejected', 'rejected', 'emailed', 'interview', 'skip', 'offer',
+]
+
+function olderSeeds(): Seed[] {
+  const rand = random(42)
+  const pick = <T,>(items: T[]) => items[Math.floor(rand() * items.length)]
+  return Array.from({ length: 36 }, (_, i) => {
+    const skills = SKILL_POOL.filter(() => rand() < 0.3).slice(0, 5)
+    return {
+      title: pick(OLDER_TITLES),
+      company: pick(OLDER_COMPANIES),
+      location: rand() < 0.75 ? 'Cebu City, Cebu' : 'Makati, Metro Manila',
+      arrangements: [pick(['On-site', 'Hybrid', 'Remote'])],
+      score: 6 + Math.round(rand() * 12),
+      skills: skills.length ? skills : ['JavaScript'],
+      missing: OTHER_POOL.filter(() => rand() < 0.15),
+      status: OLDER_STATUSES[i % OLDER_STATUSES.length],
+      hoursAgo: 216 + Math.round(rand() * 500),
+      source: rand() < 0.35 ? 'linkedin' : 'jobstreet',
+    }
+  })
+}
+
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 
 export function demoJobs(): Job[] {
-  return SEEDS.map((s, i) => {
+  return [...SEEDS, ...olderSeeds()].map((s, i) => {
     const source = s.source ?? 'jobstreet'
     const external_id = String(90_000_000 + i * 7919)
     return {
@@ -64,7 +100,9 @@ export function demoJobs(): Job[] {
       url: `https://example.com/jobs/${slug(s.title)}-${external_id}`,
       search_terms: ['junior developer'],
       status: s.status ?? 'new',
-      status_changed_at: s.status ? ago(s.hoursAgo - 2) : null,
+      status_changed_at: s.status && s.status !== 'new'
+        ? ago(Math.max(0.5, s.hoursAgo - statusPath(s.status).at(-1)![2]))
+        : null,
       skip_reason: s.status === 'skip' ? 'training bond' : null,
       notes: s.notes ?? null,
       email_drafted_at: s.status === 'emailed' ? ago(s.hoursAgo - 1) : null,
@@ -124,13 +162,79 @@ export function demoFilteredJobs(): FilteredJob[] {
   })
 }
 
-/** The latest run per source, finishing just after the newest demo job was found. */
+// Repeatable pseudo-random numbers, so the demo looks the same on every load.
+function random(seed: number) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296
+  }
+}
+
+/**
+ * Two weeks of runs on the real schedule (11:00 and 15:00, both sources),
+ * newest first. One JobStreet run failed and one LinkedIn run was cancelled,
+ * so the health panel has something to show.
+ */
 export function demoScrapeRuns(): ScrapeRun[] {
-  return (['jobstreet', 'linkedin'] as const).map((source) => ({
-    source,
-    started_at: ago(3.1),
-    finished_at: ago(2.95),
-    kept: source === 'jobstreet' ? 2 : 1,
-    error: null,
-  }))
+  const rand = random(7)
+  const runs: ScrapeRun[] = []
+  for (let i = 0; i < 28; i++) {
+    const startedHoursAgo = 3.1 + Math.floor(i / 2) * 24 + (i % 2) * 20
+    for (const source of ['jobstreet', 'linkedin'] as const) {
+      const start = startedHoursAgo - (source === 'linkedin' ? 0.05 : 0)
+      const failed = source === 'jobstreet' && i === 9
+      const interrupted = source === 'linkedin' && i === 16
+      const found = 110 + Math.round(rand() * 60)
+      const evaluated = Math.round(found * (0.15 + rand() * 0.2))
+      const kept = Math.round(evaluated * (0.1 + rand() * 0.15))
+      const expired = Math.round(rand() * 2)
+      runs.push({
+        source,
+        started_at: ago(start),
+        finished_at: interrupted ? null : ago(start - (source === 'linkedin' ? 0.1 : 0.05)),
+        found: failed || interrupted ? null : found,
+        evaluated: failed || interrupted ? null : evaluated,
+        kept: failed || interrupted ? null : kept,
+        filtered: failed || interrupted ? null : evaluated - kept - expired,
+        expired: failed || interrupted ? null : expired,
+        error: failed ? 'RuntimeError: Every search failed; JobStreet may be blocking requests or changed its API.' : null,
+        github_run_id: null,
+      })
+    }
+  }
+  return runs
+}
+
+/** The latest run of each source. */
+export const demoLatestRuns = () => demoScrapeRuns().slice(0, 2)
+
+/** The status changes behind each demo job's current status, oldest first. */
+export function demoStatusHistory(jobs: Job[]): StatusChange[] {
+  return jobs
+    .flatMap((job) =>
+      statusPath(job.status).map(([from, to, afterHours]) => ({
+        job_source: job.source,
+        job_external_id: job.external_id,
+        from_status: from,
+        to_status: to,
+        changed_at: new Date(Date.parse(job.first_seen) + afterHours * HOUR).toISOString(),
+      })),
+    )
+    .filter((change) => Date.parse(change.changed_at) <= Date.now())
+    .sort((a, b) => a.changed_at.localeCompare(b.changed_at))
+}
+
+/** How a job got to its status: [from, to, hours after it was first seen]. */
+function statusPath(status: JobStatus): [JobStatus, JobStatus, number][] {
+  switch (status) {
+    case 'new': return []
+    case 'applied': return [['new', 'applied', 2]]
+    case 'emailed': return [['new', 'emailed', 1]]
+    case 'skip': return [['new', 'skip', 2]]
+    case 'interview': return [['new', 'applied', 2], ['applied', 'interview', 54]]
+    case 'rejected': return [['new', 'applied', 3], ['applied', 'rejected', 50]]
+    case 'offer': return [['new', 'applied', 2], ['applied', 'interview', 70], ['interview', 'offer', 170]]
+  }
 }

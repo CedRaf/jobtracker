@@ -1,4 +1,4 @@
-import { demoDescription, demoFilteredJobs, demoJobs, demoScrapeRuns } from './demoData'
+import { demoDescription, demoFilteredJobs, demoJobs, demoLatestRuns, demoScrapeRuns, demoStatusHistory } from './demoData'
 import type { DataApi, JobKey } from './types'
 
 const DEMO_USER = { id: 'demo-user', email: 'demo@example.com' }
@@ -8,6 +8,7 @@ const wait = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms))
 export function createDemoApi(): DataApi {
   const jobs = demoJobs()
   const filtered = demoFilteredJobs()
+  const history = demoStatusHistory(jobs)
   const find = (key: JobKey) => {
     const job = jobs.find((j) => j.source === key.source && j.external_id === key.external_id)
     if (!job) throw new Error('Job not found')
@@ -27,7 +28,15 @@ export function createDemoApi(): DataApi {
     async updateJob(key, patch) {
       await wait()
       const job = find(key)
-      if (patch.status && patch.status !== job.status) job.status_changed_at = new Date().toISOString()
+      if (patch.status && patch.status !== job.status) {
+        // What the database trigger does for real.
+        const now = new Date().toISOString()
+        history.push({
+          job_source: job.source, job_external_id: job.external_id,
+          from_status: job.status, to_status: patch.status, changed_at: now,
+        })
+        job.status_changed_at = now
+      }
       Object.assign(job, patch)
       return { ...job }
     },
@@ -38,7 +47,16 @@ export function createDemoApi(): DataApi {
     },
     async latestScrapeRuns() {
       await wait()
-      return demoScrapeRuns()
+      return demoLatestRuns()
+    },
+    async listScrapeRuns(days) {
+      await wait()
+      const since = Date.now() - days * 86_400_000
+      return demoScrapeRuns().filter((r) => Date.parse(r.started_at) >= since)
+    },
+    async listStatusHistory() {
+      await wait()
+      return history.map((h) => ({ ...h }))
     },
     auth: {
       getUser: async () => DEMO_USER,

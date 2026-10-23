@@ -20,6 +20,14 @@ function renderPage() {
   return api
 }
 
+it('opens the email template editor with the default template', async () => {
+  renderPage()
+  await userEvent.click(await screen.findByText('Junior Full Stack Developer'))
+  const drawer = await screen.findByRole('dialog')
+  await userEvent.click(within(drawer).getByRole('button', { name: /Edit template/ }))
+  expect(await screen.findByDisplayValue('Inquiry: {title} Position')).toBeInTheDocument()
+})
+
 describe('JobsPage', () => {
   it('lists active jobs and hides skipped/rejected ones by default', async () => {
     renderPage()

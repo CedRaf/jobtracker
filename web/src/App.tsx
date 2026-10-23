@@ -9,9 +9,11 @@ import { AuthGate } from './components/AuthGate'
 import { AppLayout } from './components/AppLayout'
 import { JobsPage } from './pages/JobsPage'
 import { FilteredPage } from './pages/FilteredPage'
+import { BoardPage } from './pages/BoardPage'
+import { AnalyticsPage } from './pages/AnalyticsPage'
 import { GlobalStyles } from './components/GlobalStyles'
 import { LastVisitContext, startVisit, useTrackVisit } from './lib/lastVisit'
-import { themeConfig, useThemeMode } from './lib/theme'
+import { ThemeModeContext, themeConfig, useThemeMode } from './lib/theme'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 60_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -24,6 +26,7 @@ export default function App() {
 
   return (
     <ConfigProvider theme={themeConfig(mode)}>
+     <ThemeModeContext.Provider value={mode}>
       <GlobalStyles />
       <AntApp>
         {api ? (
@@ -36,6 +39,8 @@ export default function App() {
                       <Routes>
                         <Route element={<AppLayout themeMode={mode} onToggleTheme={toggle} />}>
                           <Route index element={<JobsPage />} />
+                          <Route path="board" element={<BoardPage />} />
+                          <Route path="analytics" element={<AnalyticsPage />} />
                           <Route path="filtered" element={<FilteredPage />} />
                           <Route path="*" element={<Navigate to="/" replace />} />
                         </Route>
@@ -54,6 +59,7 @@ export default function App() {
           />
         )}
       </AntApp>
+     </ThemeModeContext.Provider>
     </ConfigProvider>
   )
 }

@@ -1,7 +1,8 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { Button, Flex, Grid, Layout, Menu, Tag, theme, Tooltip, Typography } from 'antd'
 import {
-  FilterOutlined, LogoutOutlined, MoonOutlined, SunOutlined, UnorderedListOutlined,
+  BarChartOutlined, FilterOutlined, LogoutOutlined, MoonOutlined, ProjectOutlined, SunOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons'
 import { useApi } from '../data/hooks'
 import { useAuth } from '../data/authContext'
@@ -10,12 +11,21 @@ import type { ThemeMode } from '../lib/theme'
 // Phones drop the icons and shorten a label so both links fit beside the logo.
 const nav = (compact: boolean) => [
   { key: '/', icon: compact ? undefined : <UnorderedListOutlined />, label: <Link to="/">Jobs</Link> },
+  { key: '/board', icon: compact ? undefined : <ProjectOutlined />, label: <Link to="/board">Board</Link> },
+  {
+    key: '/analytics',
+    icon: compact ? undefined : <BarChartOutlined />,
+    label: <Link to="/analytics">{compact ? 'Stats' : 'Analytics'}</Link>,
+  },
   {
     key: '/filtered',
     icon: compact ? undefined : <FilterOutlined />,
     label: <Link to="/filtered">{compact ? 'Filtered' : 'Filtered out'}</Link>,
   },
 ]
+
+/** The nav item for a path: "/board/x" -> "/board". */
+const navKey = (pathname: string) => `/${pathname.split('/')[1] ?? ''}`
 
 export function AppLayout({ themeMode, onToggleTheme }: { themeMode: ThemeMode; onToggleTheme: () => void }) {
   const api = useApi()
@@ -52,7 +62,7 @@ export function AppLayout({ themeMode, onToggleTheme }: { themeMode: ThemeMode; 
         )}
         <Menu
           mode="horizontal"
-          selectedKeys={[pathname === '/filtered' ? '/filtered' : '/']}
+          selectedKeys={[navKey(pathname)]}
           items={nav(!screens.sm)}
           style={{ flex: 1, minWidth: 0, borderBottom: 'none', background: 'transparent' }}
         />

@@ -22,6 +22,17 @@ export function GlobalStyles() {
       .stat-toggle:focus-visible { outline: 2px solid ${token.colorPrimary}; outline-offset: 2px; }
       .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
         overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+      .chart-subtitle { font-weight: 400; font-size: 12px; color: ${token.colorTextSecondary}; }
+      .recharts-wrapper *:focus { outline: none; }
+      .board { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px;
+        scroll-snap-type: x proximity; align-items: flex-start; }
+      .board-column { flex: 0 0 272px; scroll-snap-align: start; display: flex; flex-direction: column;
+        max-height: calc(100vh - 200px); transition: background-color 0.15s ease-out, border-color 0.15s ease-out; }
+      .board-column-body { overflow-y: auto; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 8px; }
+      .board-card { padding: 10px 12px; transition: border-color 0.15s ease-out; }
+      .board-card:hover { border-color: ${token.colorPrimaryBorderHover} !important; }
+      [aria-roledescription="draggable"]:focus-visible { outline: 2px solid ${token.colorPrimary};
+        outline-offset: 2px; border-radius: ${token.borderRadius}px; }
       .clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
         overflow: hidden; overflow-wrap: anywhere; }
     `}</style>

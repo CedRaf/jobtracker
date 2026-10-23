@@ -2,13 +2,14 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   App, Button, Descriptions, Divider, Drawer, Flex, Grid, Input, Skeleton, Space, Typography,
 } from 'antd'
-import { ExportOutlined, FormOutlined, LeftOutlined, MailOutlined, RightOutlined } from '@ant-design/icons'
+import { ExportOutlined, FormOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import type { Job, JobPatch } from '../data/types'
 import { jobKeyString } from '../data/types'
 import { useJobDescription, useUpdateJob } from '../data/hooks'
 import { dateTime, errorText, fromNow, sourceLabel } from '../lib/format'
 import { SHOW_MATCH_SCORE } from '../lib/settings'
 import { CompanyAvatar } from './CompanyAvatar'
+import { DraftEmailButton } from './DraftEmail'
 import { StatusSelect } from './StatusControl'
 import { useChangeStatus } from './useChangeStatus'
 import { FlagTags, SkillTags } from './Tags'
@@ -152,21 +153,25 @@ function JobDetails({ job, onDirtyChange }: { job: Job; onDirtyChange: (dirty: b
         ]}
       />
 
-      {(job.emails.length > 0 || job.apply_link) && (
-        <Space wrap>
-          {job.emails.map((email) => (
-            <Button key={email} href={`mailto:${email}`} icon={<MailOutlined />}
-              style={{ maxWidth: '100%' }}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{email}</span>
-            </Button>
-          ))}
-          {job.apply_link && (
-            <Button href={job.apply_link} target="_blank" rel="noreferrer" icon={<FormOutlined />}>
-              Application form
-            </Button>
+      <Section title="Apply">
+        <Flex vertical gap={8} align="start">
+          {job.emails.length > 0 && (
+            <Space wrap size={4}>
+              {job.emails.map((email) => (
+                <Typography.Text key={email} copyable style={{ overflowWrap: 'anywhere' }}>{email}</Typography.Text>
+              ))}
+            </Space>
           )}
-        </Space>
-      )}
+          <Space wrap>
+            <DraftEmailButton job={job} />
+            {job.apply_link && (
+              <Button href={job.apply_link} target="_blank" rel="noreferrer" icon={<FormOutlined />}>
+                Application form
+              </Button>
+            )}
+          </Space>
+        </Flex>
+      </Section>
 
       <div>
         <Divider titlePlacement="start" style={{ marginTop: 0 }}>Description</Divider>

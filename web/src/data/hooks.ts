@@ -48,17 +48,31 @@ export function useUpdateJob() {
     onError: (_error, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(JOBS, context.previous)
     },
-    onSuccess: (saved, { key }) => {
+    onSuccess: (saved, { key, patch }) => {
       queryClient.setQueryData<Job[]>(JOBS, (jobs) =>
         jobs?.map((j) => (sameJob(key)(j) ? saved : j)),
       )
+      // A status change adds a row to status_history (the analytics read it).
+      if (patch.status) queryClient.invalidateQueries({ queryKey: HISTORY })
     },
   })
 }
 
 export function useLatestScrapeRuns() {
   const api = useApi()
-  return useQuery({ queryKey: ['scrapeRuns'], queryFn: () => api.latestScrapeRuns() })
+  return useQuery({ queryKey: ['scrapeRuns', 'latest'], queryFn: () => api.latestScrapeRuns() })
+}
+
+export function useScrapeRuns(days: number) {
+  const api = useApi()
+  return useQuery({ queryKey: ['scrapeRuns', days], queryFn: () => api.listScrapeRuns(days) })
+}
+
+const HISTORY = ['statusHistory'] as const
+
+export function useStatusHistory() {
+  const api = useApi()
+  return useQuery({ queryKey: HISTORY, queryFn: () => api.listStatusHistory() })
 }
 
 export function useFilteredJobs(days: number) {

@@ -181,17 +181,30 @@ Setup steps (login, local run, Vercel): `docs/DASHBOARD_SETUP.md`.
 - [ ] **Done when:** you can do your daily review from the dashboard instead of the sheet.
 
 ### Phase 3: Tracker + analytics
-- [ ] **Kanban board:** drag cards from New → Applied/Emailed → Interview → Offer/Rejected. Skip asks for a reason.
-- [ ] **Analytics page:**
-  - New jobs per day by source
-  - Most requested skills vs. your skills
-  - Application funnel with response rate
-  - Median days from applied to first response
-  - Filter reasons breakdown
-- [ ] **Scraper health panel:** last runs, counts, errors, and a warning if no run happened in 24 h.
-- [ ] **"Draft email" button:** opens Gmail compose with the template from `Code.gs` filled in, then sets the status to Emailed.
-  - The catch: compose links can't attach the resume, so attach it by hand.
-  - If that gets annoying, a Supabase Edge Function can create real Gmail drafts later (see Phase 6).
+Analytics are computed in the browser from tables RLS already exposes (`jobs`, `status_history`, `filtered_jobs`, `scrape_runs`). That's plenty fast at one person's volume and needs no new SQL views or migrations.
+
+- [x] **Kanban board** (`/board`, `pages/BoardPage.tsx`, dnd-kit):
+  - Columns New → Applied → Emailed → Interview → Offer. Rejected and Skip appear with "Show rejected and skipped".
+  - Dropping on Skip asks for an optional reason. Every move gets the same Undo toast as the table.
+  - Filter by source. Cards open the job drawer.
+  - Touch: a short press starts a drag, so the board still scrolls. Keyboard: Enter opens a card, Space picks it up.
+- [x] **Analytics page** (`/analytics`, `pages/AnalyticsPage.tsx`, Recharts; logic in `lib/analytics.ts`):
+  - Headline tiles: jobs found, applied or emailed, response rate, median days to a response.
+  - New jobs per day by source (stacked), the application funnel, filter reasons by rule, your skills employers ask for, and other stacks they ask for.
+  - A 30 / 90 / 365-day period switch. Every chart can switch to a table view.
+  - Built to the dataviz skill's rules. The source colours (blue/orange) passed its palette validator in light and dark mode against the card surfaces.
+  - Funnel stages count jobs that *ever* reached them. Jobs imported from the sheet have no history, so their current status stands in.
+- [x] **Scraper health panel** (top of Analytics):
+  - Last run per source, with OK / Failed / Running / Interrupted (no finish after an hour).
+  - A warning if a source had no run in 24 hours.
+  - Success rate over 14 days, and the full runs table (found, checked, kept, filtered, duration).
+  - Optional: set `VITE_GITHUB_REPO=CedRaf/jobtracker` to link each run to its Actions log.
+- [x] **"Draft in Gmail" button** (job drawer, `components/DraftEmail.tsx`):
+  - Opens Gmail's compose window with the template filled in (`{title}`, `{company}`, `{at_company}`).
+  - Records `email_drafted_at`, and moves a New or Applied job to Emailed.
+  - The template and an optional Gmail account are edited in the dashboard and saved in that browser's local storage, so personal wording stays out of the repo. Set it up once per device.
+  - The catch: compose links can't attach files, so attach the resume by hand. A Supabase Edge Function could create real Gmail drafts later (Phase 6).
+- [x] Tests: analytics logic, the email template, and the board and analytics pages on demo data (65 web tests in total). The demo data now has a month of jobs, status history and two weeks of scraper runs, including one failed and one interrupted run.
 
 ### Phase 4: Cutover
 - [ ] Use the dashboard daily for 1–2 weeks while dual-writing.
@@ -200,6 +213,7 @@ Setup steps (login, local run, Vercel): `docs/DASHBOARD_SETUP.md`.
 - [ ] Trim `Code.gs` down to the timer (`startScraper`, `installScraperTimers`, `githubRequest_`). Keep the sheet itself as an archive.
 
 ### Phase 5: Portfolio polish
+- [ ] **Optional: link scraper runs to their GitHub logs.** Set `VITE_GITHUB_REPO=CedRaf/jobtracker` in `web/.env.local` and in Vercel's environment variables. The "All runs" table on the Analytics page then gets a link per run. It's a frontend setting (not a GitHub secret), and the links only open for people with access to the repo.
 - [ ] **Public demo:** a second Vercel deployment with `VITE_DEMO=true`. The data layer serves fake jobs from a JSON fixture, and edits only change in-memory state.
   - No real scraped listings or personal data are public, and the demo needs no Supabase project.
 - [ ] **README:**

@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
+import { createContext, useEffect, useState } from 'react'
 import { theme, type ThemeConfig } from 'antd'
 
 export type ThemeMode = 'light' | 'dark'
+
+/** The current mode, for the few things antd tokens don't cover (chart colours). */
+export const ThemeModeContext = createContext<ThemeMode>('light')
 
 const KEY = 'jobtracker.theme'
 

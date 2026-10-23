@@ -58,14 +58,29 @@ export interface FilteredJob extends JobKey {
   first_seen: string
 }
 
-/** One scraper run for one source (the scrape_runs table, trimmed). */
+/** One scraper run for one source (the scrape_runs table). Counts are null until it finishes. */
 export interface ScrapeRun {
   source: JobSource
   started_at: string
+  /** Null while running, or forever if the run was cancelled or killed. */
   finished_at: string | null
+  found: number | null
+  evaluated: number | null
   kept: number | null
+  filtered: number | null
+  expired: number | null
   /** Null = the run succeeded. */
   error: string | null
+  github_run_id: string | null
+}
+
+/** One status change, recorded by a database trigger (the status_history table). */
+export interface StatusChange {
+  job_source: JobSource
+  job_external_id: string
+  from_status: JobStatus | null
+  to_status: JobStatus
+  changed_at: string
 }
 
 export interface AppUser {
@@ -83,6 +98,10 @@ export interface DataApi {
   listFilteredJobs(days: number): Promise<FilteredJob[]>
   /** The most recent run for each source (at most one per source). */
   latestScrapeRuns(): Promise<ScrapeRun[]>
+  /** Scraper runs started in the last `days` days, newest first. */
+  listScrapeRuns(days: number): Promise<ScrapeRun[]>
+  /** Every recorded status change, oldest first. */
+  listStatusHistory(): Promise<StatusChange[]>
   auth: {
     getUser(): Promise<AppUser | null>
     /** Calls back on sign-in/out; returns an unsubscribe function. */
