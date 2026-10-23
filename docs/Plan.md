@@ -138,6 +138,11 @@ Setup steps (login, local run, Vercel): `docs/DASHBOARD_SETUP.md`.
 - [x] **Filtered view:** dropped jobs grouped by rule (biggest group first) for the last 7/30/90 days, with the specific match shown per job.
 - [x] Tests: 24 Vitest tests (filters, reason grouping, last-visit tracking, and the Jobs page on demo data). The CI workflow has a `web` job: lint, test and build.
 - [x] Light/dark mode (follows the system, toggle remembered).
+- [x] **Design pass (after first use):**
+  - JobStreet and LinkedIn in separate tabs (with counts and a "new" badge); the Source column and filter are gone.
+  - The flag filter uses fixed categories (`FLAG_CATEGORIES` in `web/src/lib/flags.ts`, grouped into good signs and concerns) instead of raw flag text. Keep it in sync with the flags `rules.py` emits; a test lists them all.
+  - Match score hidden (column, filter and drawer) behind `SHOW_MATCH_SCORE` in `web/src/lib/settings.ts`.
+  - Brand colour, Inter font, logo mark, company-initial avatars, and summary cards (new / to review / applied / interviewing / offers) that work as one-click filters.
 - [ ] **Your steps:** create your login and add it to `app_users`, then deploy to Vercel (see the setup guide).
 - [ ] **Done when:** you can do your daily review from the dashboard instead of the sheet.
 

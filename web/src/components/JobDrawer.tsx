@@ -7,7 +7,9 @@ import type { Job, JobPatch } from '../data/types'
 import { jobKeyString } from '../data/types'
 import { useJobDescription, useUpdateJob } from '../data/hooks'
 import { dateTime, fromNow, sourceLabel } from '../lib/format'
+import { SHOW_MATCH_SCORE } from '../lib/settings'
 import { statusOptions } from '../lib/status'
+import { CompanyAvatar } from './CompanyAvatar'
 import { FlagTags, SkillTags, StatusTag } from './Tags'
 
 export function JobDrawer({ job, onClose }: { job: Job | null; onClose: () => void }) {
@@ -36,14 +38,17 @@ function JobDetails({ job }: { job: Job }) {
 
   return (
     <Flex vertical gap={16}>
-      <div>
-        <Typography.Text strong>{job.company ?? 'Unknown company'}</Typography.Text>
-        <Typography.Text type="secondary"> · {job.location ?? 'No location'}</Typography.Text>
-        <Flex gap={8} align="center" style={{ marginTop: 8 }}>
-          <StatusTag status={job.status} />
-          <Typography.Text type="secondary">Match score {job.match_score}</Typography.Text>
-        </Flex>
-      </div>
+      <Flex gap={12} align="center">
+        <CompanyAvatar company={job.company} />
+        <div>
+          <Typography.Text strong>{job.company ?? 'Unknown company'}</Typography.Text>
+          <Typography.Text type="secondary"> · {job.location ?? 'No location'}</Typography.Text>
+          <Flex gap={8} align="center" style={{ marginTop: 4 }}>
+            <StatusTag status={job.status} />
+            {SHOW_MATCH_SCORE && <Typography.Text type="secondary">Match score {job.match_score}</Typography.Text>}
+          </Flex>
+        </div>
+      </Flex>
 
       <EditForm job={job} />
 

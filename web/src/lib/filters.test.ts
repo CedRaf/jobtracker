@@ -34,11 +34,11 @@ describe('applyFilters', () => {
     expect(ids({ ...ALL, text: 'BOND' })).toEqual(['c'])
   })
 
-  it('filters by source, score, skills and flags', () => {
-    expect(ids({ ...ALL, sources: ['linkedin'] })).toEqual(['b'])
+  it('filters by score, skills and flag categories', () => {
     expect(ids({ ...ALL, minScore: 10 })).toEqual(['a', 'c'])
     expect(ids({ ...ALL, skills: ['React', 'TypeScript'] })).toEqual(['a', 'c'])
-    expect(ids({ ...ALL, flags: ['!training bond'] })).toEqual(['c'])
+    expect(ids({ ...ALL, flags: ['training-bond'] })).toEqual(['c'])
+    expect(ids({ ...ALL, flags: ['training-bond', 'off-stack'] })).toEqual([])
   })
 
   it('treats a blank arrangement as "Not listed"', () => {
@@ -56,11 +56,10 @@ describe('applyFilters', () => {
 describe('filterOptions', () => {
   it('lists the distinct values present, sorted', () => {
     const options = filterOptions([
-      makeJob({ matched_skills: ['React', 'C#'], flags: ['+entry level'] }),
+      makeJob({ matched_skills: ['React', 'C#'] }),
       makeJob({ matched_skills: ['C#'], work_arrangements: [] }),
     ])
     expect(options.skills).toEqual(['C#', 'React'])
-    expect(options.flags).toEqual(['+entry level'])
     expect(options.arrangements).toEqual([NOT_LISTED, 'On-site'])
   })
 })

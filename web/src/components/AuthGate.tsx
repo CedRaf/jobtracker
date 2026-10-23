@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Flex, Form, Input, Result, Spin, Typography } from 'antd'
-import { useAuth } from '../data/auth'
+import { useAuth } from '../data/authContext'
 import { useApi } from '../data/hooks'
 
 /** Shows the login form until you're signed in as a user listed in app_users. */

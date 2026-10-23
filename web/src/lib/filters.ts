@@ -1,15 +1,16 @@
-import type { Job, JobSource, JobStatus } from '../data/types'
+import type { Job, JobStatus } from '../data/types'
+import { flagCategories } from './flags'
 import { ACTIVE_STATUSES } from './status'
 
+/** Filters within one source tab (the tabs pick JobStreet or LinkedIn). */
 export interface JobFilters {
   text: string
-  sources: JobSource[]
   /** Empty = every status. */
   statuses: JobStatus[]
   /** Job matches if it has any of these. */
   arrangements: string[]
   minScore: number
-  /** Job must have all of these. */
+  /** FLAG_CATEGORIES keys; job must have all of them. */
   flags: string[]
   /** Job must have all of these. */
   skills: string[]
@@ -18,7 +19,6 @@ export interface JobFilters {
 
 export const DEFAULT_FILTERS: JobFilters = {
   text: '',
-  sources: [],
   statuses: ACTIVE_STATUSES,
   arrangements: [],
   minScore: 0,
@@ -45,13 +45,13 @@ function matchesText(job: Job, text: string): boolean {
 export function applyFilters(jobs: Job[], f: JobFilters, lastVisit: string | null): Job[] {
   return jobs.filter((job) => {
     const arrangements = job.work_arrangements.length ? job.work_arrangements : [NOT_LISTED]
+    const categories = f.flags.length ? flagCategories(job.flags) : null
     return (
       matchesText(job, f.text) &&
-      (!f.sources.length || f.sources.includes(job.source)) &&
       (!f.statuses.length || f.statuses.includes(job.status)) &&
       (!f.arrangements.length || arrangements.some((a) => f.arrangements.includes(a))) &&
       job.match_score >= f.minScore &&
-      f.flags.every((flag) => job.flags.includes(flag)) &&
+      f.flags.every((key) => categories!.has(key)) &&
       f.skills.every((skill) => job.matched_skills.includes(skill)) &&
       (!f.newOnly || isNewSince(job, lastVisit))
     )
@@ -61,13 +61,12 @@ export function applyFilters(jobs: Job[], f: JobFilters, lastVisit: string | nul
 const uniqueSorted = (values: string[]) =>
   [...new Set(values)].sort((a, b) => a.localeCompare(b))
 
-/** The filter choices present in the data. */
+/** The arrangement and skill choices present in the data. */
 export function filterOptions(jobs: Job[]) {
   return {
     arrangements: uniqueSorted(
       jobs.flatMap((j) => (j.work_arrangements.length ? j.work_arrangements : [NOT_LISTED])),
     ),
-    flags: uniqueSorted(jobs.flatMap((j) => j.flags)),
     skills: uniqueSorted(jobs.flatMap((j) => j.matched_skills)),
   }
 }

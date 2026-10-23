@@ -3,7 +3,11 @@ import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
 
 // Testing Library only cleans up automatically when test globals are on.
-afterEach(() => cleanup())
+// Remembered choices (tab, theme, last visit) must not leak between tests.
+afterEach(() => {
+  cleanup()
+  localStorage.clear()
+})
 
 // antd measures elements with ResizeObserver, which jsdom doesn't have.
 globalThis.ResizeObserver ??= class {

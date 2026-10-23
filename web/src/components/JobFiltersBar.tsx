@@ -3,13 +3,9 @@ import { Button, Card, Checkbox, Flex, Grid, Input, InputNumber, Select } from '
 import { FilterOutlined } from '@ant-design/icons'
 import type { Job } from '../data/types'
 import { activeFilterCount, DEFAULT_FILTERS, filterOptions, type JobFilters } from '../lib/filters'
-import { flagLabel } from '../lib/flags'
+import { flagFilterOptions } from '../lib/flags'
+import { SHOW_MATCH_SCORE } from '../lib/settings'
 import { statusOptions } from '../lib/status'
-
-const SOURCE_OPTIONS = [
-  { value: 'jobstreet', label: 'JobStreet' },
-  { value: 'linkedin', label: 'LinkedIn' },
-]
 
 interface Props {
   jobs: Job[]
@@ -53,17 +49,17 @@ function FilterControls({ jobs, filters, onChange, onHide }: Props & { onHide?: 
         />
         <Select {...multi} placeholder="Any status" options={statusOptions} value={filters.statuses}
           onChange={(v) => set('statuses', v)} style={{ width: 230 }} />
-        <Select {...multi} placeholder="Any source" options={SOURCE_OPTIONS} value={filters.sources}
-          onChange={(v) => set('sources', v)} style={{ width: 170 }} />
         <Select {...multi} placeholder="Any arrangement" options={toOptions(options.arrangements)}
           value={filters.arrangements} onChange={(v) => set('arrangements', v)} style={{ width: 190 }} />
         <Select {...multi} placeholder="Has skills" options={toOptions(options.skills)} value={filters.skills}
           onChange={(v) => set('skills', v)} style={{ width: 190 }} />
-        <Select {...multi} placeholder="Has flags"
-          options={options.flags.map((value) => ({ value, label: flagLabel(value) }))}
-          value={filters.flags} onChange={(v) => set('flags', v)} style={{ width: 190 }} />
-        <InputNumber min={0} prefix="Score ≥" value={filters.minScore}
-          onChange={(v) => set('minScore', v ?? 0)} style={{ width: 130 }} />
+        <Select {...multi} placeholder="Has flags" options={flagFilterOptions}
+          value={filters.flags} onChange={(v) => set('flags', v)} style={{ width: 200 }}
+          popupMatchSelectWidth={240} />
+        {SHOW_MATCH_SCORE && (
+          <InputNumber min={0} prefix="Score ≥" value={filters.minScore}
+            onChange={(v) => set('minScore', v ?? 0)} style={{ width: 130 }} />
+        )}
         <Checkbox checked={filters.newOnly} onChange={(e) => set('newOnly', e.target.checked)}>
           New since last visit
         </Checkbox>

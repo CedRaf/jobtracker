@@ -29,11 +29,29 @@ describe('JobsPage', () => {
     expect(screen.queryByText('Junior Web Developer')).not.toBeInTheDocument() // rejected
   })
 
+  it('shows one source per tab', async () => {
+    renderPage()
+    await screen.findByText('Junior Full Stack Developer')
+    expect(screen.queryByText('AI Engineer – Junior')).not.toBeInTheDocument() // LinkedIn
+
+    await userEvent.click(screen.getByRole('tab', { name: /LinkedIn/ }))
+    expect(await screen.findByText('AI Engineer – Junior')).toBeInTheDocument()
+    expect(screen.queryByText('Junior Full Stack Developer')).not.toBeInTheDocument()
+  })
+
   it('searches by text', async () => {
     renderPage()
     await screen.findByText('Junior Full Stack Developer')
-    await userEvent.type(screen.getByPlaceholderText(/search title/i), 'kestrel{Enter}')
-    expect(screen.getByText('AI Engineer – Junior')).toBeInTheDocument()
+    await userEvent.type(screen.getByPlaceholderText(/search title/i), 'harbor{Enter}')
+    expect(screen.getByText('Associate Software Engineer')).toBeInTheDocument()
+    expect(screen.queryByText('Junior Full Stack Developer')).not.toBeInTheDocument()
+  })
+
+  it('filters to a status from its summary card', async () => {
+    renderPage()
+    await screen.findByText('Junior Full Stack Developer')
+    await userEvent.click(screen.getByRole('button', { name: /Interviewing/ }))
+    expect(screen.getByText('Full Stack Engineer')).toBeInTheDocument()
     expect(screen.queryByText('Junior Full Stack Developer')).not.toBeInTheDocument()
   })
 

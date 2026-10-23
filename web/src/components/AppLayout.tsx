@@ -1,8 +1,10 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
-import { Button, Flex, Layout, Menu, Tag, theme, Tooltip, Typography } from 'antd'
-import { FilterOutlined, LogoutOutlined, MoonOutlined, SunOutlined, UnorderedListOutlined } from '@ant-design/icons'
+import { Button, Flex, Grid, Layout, Menu, Tag, theme, Tooltip, Typography } from 'antd'
+import {
+  FilterOutlined, LogoutOutlined, MoonOutlined, RocketOutlined, SunOutlined, UnorderedListOutlined,
+} from '@ant-design/icons'
 import { useApi } from '../data/hooks'
-import { useAuth } from '../data/auth'
+import { useAuth } from '../data/authContext'
 import type { ThemeMode } from '../lib/theme'
 
 const NAV = [
@@ -15,6 +17,7 @@ export function AppLayout({ themeMode, onToggleTheme }: { themeMode: ThemeMode; 
   const { user } = useAuth()
   const { pathname } = useLocation()
   const { token } = theme.useToken()
+  const screens = Grid.useBreakpoint()
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -24,8 +27,17 @@ export function AppLayout({ themeMode, onToggleTheme }: { themeMode: ThemeMode; 
           background: token.colorBgContainer, borderBottom: `1px solid ${token.colorBorderSecondary}`,
         }}
       >
-        <Typography.Title level={4} style={{ margin: 0, whiteSpace: 'nowrap' }}>JobTracker</Typography.Title>
-        {api.demo && <Tag color="gold">Demo · sample data</Tag>}
+        <Flex gap={10} align="center">
+          <Flex align="center" justify="center" aria-hidden
+            style={{
+              width: 32, height: 32, borderRadius: 8, color: '#fff', fontSize: 16,
+              background: `linear-gradient(135deg, ${token.colorPrimary}, #0891b2)`,
+            }}>
+            <RocketOutlined />
+          </Flex>
+          {screens.sm && <Typography.Title level={4} style={{ margin: 0, whiteSpace: 'nowrap' }}>JobTracker</Typography.Title>}
+        </Flex>
+        {api.demo && screens.sm && <Tag color="gold">Demo · sample data</Tag>}
         <Menu
           mode="horizontal"
           selectedKeys={[pathname === '/filtered' ? '/filtered' : '/']}

@@ -22,7 +22,18 @@ export default function App() {
 
   return (
     <ConfigProvider
-      theme={{ algorithm: mode === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm }}
+      theme={{
+        algorithm: mode === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
+        token: {
+          colorPrimary: '#4f46e5',
+          borderRadius: 8,
+          fontFamily: "Inter, -apple-system, 'Segoe UI', Roboto, sans-serif",
+          ...(mode === 'light' && { colorBgLayout: '#f5f6fa' }),
+        },
+        components: {
+          Table: { headerBg: 'transparent' },
+        },
+      }}
     >
       <AntApp>
         {api ? (
