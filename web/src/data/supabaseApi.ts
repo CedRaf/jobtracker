@@ -1,5 +1,5 @@
 import { createClient, type User } from '@supabase/supabase-js'
-import type { AppUser, DataApi, FilteredJob, Job, JobKey } from './types'
+import type { AppUser, DataApi, FilteredJob, Job, JobKey, ScrapeRun } from './types'
 
 // Everything except the description, which is only loaded for the open job.
 const JOB_COLUMNS = [
@@ -14,6 +14,10 @@ const FILTERED_COLUMNS =
 
 // PostgREST returns at most 1000 rows per request by default.
 const PAGE = 1000
+
+/** The first (newest) run of each source, from runs sorted newest first. */
+export const latestPerSource = (runs: ScrapeRun[]) =>
+  runs.filter((run, i) => runs.findIndex((r) => r.source === run.source) === i)
 
 const toUser = (user: User | null | undefined): AppUser | null =>
   user ? { id: user.id, email: user.email ?? null } : null
@@ -80,6 +84,18 @@ export function createSupabaseApi(url: string, publishableKey: string): DataApi 
           .range(from, to)
           .returns<FilteredJob[]>(),
       )
+    },
+
+    async latestScrapeRuns() {
+      // Two sources, so the newest few rows always include both.
+      const { data, error } = await supabase
+        .from('scrape_runs')
+        .select('source,started_at,finished_at,kept,error')
+        .order('started_at', { ascending: false })
+        .limit(10)
+        .returns<ScrapeRun[]>()
+      if (error) throw error
+      return latestPerSource(data ?? [])
     },
 
     auth: {

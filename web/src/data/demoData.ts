@@ -1,5 +1,5 @@
 // Made-up sample data for demo mode. No real listings or companies.
-import type { FilteredJob, Job, JobStatus } from './types'
+import type { FilteredJob, Job, JobStatus, ScrapeRun } from './types'
 
 const HOUR = 3_600_000
 const ago = (hours: number) => new Date(Date.now() - hours * HOUR).toISOString()
@@ -122,4 +122,15 @@ export function demoFilteredJobs(): FilteredJob[] {
       first_seen: ago(hoursAgo),
     }
   })
+}
+
+/** The latest run per source, finishing just after the newest demo job was found. */
+export function demoScrapeRuns(): ScrapeRun[] {
+  return (['jobstreet', 'linkedin'] as const).map((source) => ({
+    source,
+    started_at: ago(3.1),
+    finished_at: ago(2.95),
+    kept: source === 'jobstreet' ? 2 : 1,
+    error: null,
+  }))
 }

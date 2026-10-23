@@ -1,15 +1,20 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { Button, Flex, Grid, Layout, Menu, Tag, theme, Tooltip, Typography } from 'antd'
 import {
-  FilterOutlined, LogoutOutlined, MoonOutlined, RocketOutlined, SunOutlined, UnorderedListOutlined,
+  FilterOutlined, LogoutOutlined, MoonOutlined, SunOutlined, UnorderedListOutlined,
 } from '@ant-design/icons'
 import { useApi } from '../data/hooks'
 import { useAuth } from '../data/authContext'
 import type { ThemeMode } from '../lib/theme'
 
-const NAV = [
-  { key: '/', icon: <UnorderedListOutlined />, label: <Link to="/">Jobs</Link> },
-  { key: '/filtered', icon: <FilterOutlined />, label: <Link to="/filtered">Filtered out</Link> },
+// Phones drop the icons and shorten a label so both links fit beside the logo.
+const nav = (compact: boolean) => [
+  { key: '/', icon: compact ? undefined : <UnorderedListOutlined />, label: <Link to="/">Jobs</Link> },
+  {
+    key: '/filtered',
+    icon: compact ? undefined : <FilterOutlined />,
+    label: <Link to="/filtered">{compact ? 'Filtered' : 'Filtered out'}</Link>,
+  },
 ]
 
 export function AppLayout({ themeMode, onToggleTheme }: { themeMode: ThemeMode; onToggleTheme: () => void }) {
@@ -23,25 +28,32 @@ export function AppLayout({ themeMode, onToggleTheme }: { themeMode: ThemeMode; 
     <Layout style={{ minHeight: '100vh' }}>
       <Layout.Header
         style={{
-          display: 'flex', alignItems: 'center', gap: 16, paddingInline: 16,
+          display: 'flex', alignItems: 'center', gap: screens.sm ? 16 : 8, paddingInline: 16,
           background: token.colorBgContainer, borderBottom: `1px solid ${token.colorBorderSecondary}`,
         }}
       >
         <Flex gap={10} align="center">
           <Flex align="center" justify="center" aria-hidden
             style={{
-              width: 32, height: 32, borderRadius: 8, color: '#fff', fontSize: 16,
-              background: `linear-gradient(135deg, ${token.colorPrimary}, #0891b2)`,
+              width: 30, height: 30, borderRadius: token.borderRadius, fontSize: 13, fontWeight: 700,
+              letterSpacing: '0.02em', color: token.colorBgContainer, background: token.colorPrimary,
             }}>
-            <RocketOutlined />
+            JT
           </Flex>
-          {screens.sm && <Typography.Title level={4} style={{ margin: 0, whiteSpace: 'nowrap' }}>JobTracker</Typography.Title>}
+          {screens.sm && <Typography.Text strong style={{ fontSize: 16, whiteSpace: 'nowrap' }}>JobTracker</Typography.Text>}
         </Flex>
-        {api.demo && screens.sm && <Tag color="gold">Demo · sample data</Tag>}
+        {api.demo && (
+          <Tooltip title="Sample data: changes last until you reload">
+            <Tag style={{
+              marginInlineEnd: 0, color: token.colorText, background: token.colorWarningBg,
+              borderColor: token.colorWarningBorder,
+            }}>{screens.sm ? 'Demo · sample data' : 'Demo'}</Tag>
+          </Tooltip>
+        )}
         <Menu
           mode="horizontal"
           selectedKeys={[pathname === '/filtered' ? '/filtered' : '/']}
-          items={NAV}
+          items={nav(!screens.sm)}
           style={{ flex: 1, minWidth: 0, borderBottom: 'none', background: 'transparent' }}
         />
         <Flex gap={4} align="center">

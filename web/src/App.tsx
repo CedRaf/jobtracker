@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { App as AntApp, ConfigProvider, Result, theme } from 'antd'
+import { App as AntApp, ConfigProvider, Result } from 'antd'
 import { api } from './data/api'
 import { AuthProvider } from './data/auth'
 import { ApiContext } from './data/hooks'
@@ -9,8 +9,9 @@ import { AuthGate } from './components/AuthGate'
 import { AppLayout } from './components/AppLayout'
 import { JobsPage } from './pages/JobsPage'
 import { FilteredPage } from './pages/FilteredPage'
-import { LastVisitContext, startVisit } from './lib/lastVisit'
-import { useThemeMode } from './lib/theme'
+import { GlobalStyles } from './components/GlobalStyles'
+import { LastVisitContext, startVisit, useTrackVisit } from './lib/lastVisit'
+import { themeConfig, useThemeMode } from './lib/theme'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 60_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -19,22 +20,11 @@ const queryClient = new QueryClient({
 export default function App() {
   const { mode, toggle } = useThemeMode()
   const [lastVisit] = useState(() => startVisit(typeof localStorage === 'undefined' ? undefined : localStorage))
+  useTrackVisit()
 
   return (
-    <ConfigProvider
-      theme={{
-        algorithm: mode === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
-        token: {
-          colorPrimary: '#4f46e5',
-          borderRadius: 8,
-          fontFamily: "Inter, -apple-system, 'Segoe UI', Roboto, sans-serif",
-          ...(mode === 'light' && { colorBgLayout: '#f5f6fa' }),
-        },
-        components: {
-          Table: { headerBg: 'transparent' },
-        },
-      }}
-    >
+    <ConfigProvider theme={themeConfig(mode)}>
+      <GlobalStyles />
       <AntApp>
         {api ? (
           <ApiContext.Provider value={api}>

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Flex, Form, Input, Result, Spin, Typography } from 'antd'
 import { useAuth } from '../data/authContext'
 import { useApi } from '../data/hooks'
+import { errorText } from '../lib/format'
 
 /** Shows the login form until you're signed in as a user listed in app_users. */
 export function AuthGate({ children }: { children: ReactNode }) {
@@ -19,7 +20,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (allowed.isError) {
     return (
       <FullPage>
-        <Result status="error" title="Couldn't check your access" subTitle={String(allowed.error)}
+        <Result status="error" title="Couldn't check your access" subTitle={errorText(allowed.error)}
           extra={<Button onClick={() => allowed.refetch()}>Try again</Button>} />
       </FullPage>
     )
@@ -43,7 +44,7 @@ function LoginForm() {
     try {
       await api.auth.signIn(email, password)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorText(e))
     } finally {
       setLoading(false)
     }

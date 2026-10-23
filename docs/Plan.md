@@ -143,6 +143,40 @@ Setup steps (login, local run, Vercel): `docs/DASHBOARD_SETUP.md`.
   - The flag filter uses fixed categories (`FLAG_CATEGORIES` in `web/src/lib/flags.ts`, grouped into good signs and concerns) instead of raw flag text. Keep it in sync with the flags `rules.py` emits; a test lists them all.
   - Match score hidden (column, filter and drawer) behind `SHOW_MATCH_SCORE` in `web/src/lib/settings.ts`.
   - Brand colour, Inter font, logo mark, company-initial avatars, and summary cards (new / to review / applied / interviewing / offers) that work as one-click filters.
+- [x] **Design pass with Impeccable (2026-10-23):**
+  - Product context is in `PRODUCT.md`. The first critique scored 22/40 and the audit 11/20. The main gaps were keyboard access, phone triage, silent status changes, contrast in both themes, and a "new" marker that reset on every reload.
+  - **Look:**
+    - Teal primary (`#0f766e` in light mode, `#2bb8ad` in dark mode, with dark ink on dark-mode primary buttons).
+    - Neutrals tinted toward the teal.
+    - Public Sans, self-hosted through `@fontsource-variable/public-sans` (the Google Fonts request is gone).
+    - Tabular numbers everywhere.
+    - A flat "JT" mark and favicon.
+    - All theme tokens are in `web/src/lib/theme.ts`. antd generates grey tints from this dark seed, so the light-mode primary tints are set by hand there.
+  - **Colour:**
+    - Every status has its own colour: New is teal, Rejected is volcano, and Skip is grey.
+    - Status selects show a coloured dot.
+    - Avatars are neutral.
+    - The stat cards lost their five accent colours and became a toggle bar where "To review" leads. On phones it is one row you scroll sideways.
+    - Tags use `ToneTag` (shade 8 on shade 1) so they pass WCAG AA. Secondary text and placeholders are darker than antd's defaults.
+    - Light and dark mode were checked by measuring every visible text element.
+  - **Behaviour:**
+    - Status changes save at once (in the drawer too) and show a "Saved" message with Undo.
+    - Picking Skip in the table asks for an optional reason. The row stays listed until the filters change.
+    - The drawer asks before throwing away unsaved notes, and has previous/next buttons plus j/k keys.
+    - Rows and stat toggles work from the keyboard.
+    - Search filters as you type, and Reset clears it.
+  - **Freshness:**
+    - The header shows the latest `scrape_runs` row for the tab ("Last scrape today 11:04 · 2 kept", or "failed").
+    - "New since last visit" now survives reloads: a visit ends after 30 minutes away (`web/src/lib/lastVisit.ts`).
+  - **States:**
+    - Error alerts have Try again, and a failed load no longer also shows an empty-state message.
+    - There's a "You're caught up" state for To review.
+    - Long titles are clamped to two lines.
+  - **Phones:**
+    - The table becomes one stacked column (title, company, up to two flags with concerns first, the status select, and age), with no sideways scroll.
+    - Filters are full width.
+    - The nav is shortened, and the demo tag stays visible.
+  - Tests: 44 (new ones cover visit tracking, keyboard open, skip with a reason, and the caught-up state).
 - [ ] **Your steps:** create your login and add it to `app_users`, then deploy to Vercel (see the setup guide).
 - [ ] **Done when:** you can do your daily review from the dashboard instead of the sheet.
 

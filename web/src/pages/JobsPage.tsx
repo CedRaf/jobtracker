@@ -1,23 +1,26 @@
-import { useContext, useMemo, useState } from 'react'
-import { App, Alert, Badge, Button, Flex, Select, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
-import type { TableColumnsType } from 'antd'
+import { useContext, useMemo, useState, type ReactNode } from 'react'
+import { Alert, Button, Empty, Flex, Grid, Table, Tabs, theme, Tooltip, Typography } from 'antd'
+import type { TableColumnsType, TableProps } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
-import type { Job, JobSource } from '../data/types'
+import type { Job, JobSource, ScrapeRun } from '../data/types'
 import { jobKeyString } from '../data/types'
-import { useJobs, useUpdateJob } from '../data/hooks'
+import { useJobs, useLatestScrapeRuns } from '../data/hooks'
 import { CompanyAvatar } from '../components/CompanyAvatar'
 import { JobDrawer } from '../components/JobDrawer'
 import { JobFiltersBar } from '../components/JobFiltersBar'
 import { StatCards } from '../components/StatCards'
-import { FlagTags, SkillTags } from '../components/Tags'
+import { StatusCell } from '../components/StatusControl'
+import { FlagTags, SkillTags, ToneTag } from '../components/Tags'
 import { applyFilters, DEFAULT_FILTERS, isNewSince, type JobFilters } from '../lib/filters'
-import { dateTime, fromNow, sourceLabel } from '../lib/format'
+import { flagTone } from '../lib/flags'
+import { dateTime, dayTime, errorText, fromNow, sourceLabel } from '../lib/format'
 import { LastVisitContext } from '../lib/lastVisit'
 import { SHOW_MATCH_SCORE } from '../lib/settings'
-import { statusOptions } from '../lib/status'
 
 const SOURCES: JobSource[] = ['jobstreet', 'linkedin']
 const TAB_KEY = 'jobtracker.sourceTab'
+
+type SortOrder = 'ascend' | 'descend' | null
 
 function initialSource(): JobSource {
   try {
@@ -33,19 +36,40 @@ const sameStatuses = (a: string[], b: string[]) => a.length === b.length && a.ev
 
 export function JobsPage() {
   const jobs = useJobs()
+  const runs = useLatestScrapeRuns()
   const lastVisit = useContext(LastVisitContext)
+  const screens = Grid.useBreakpoint()
   const [source, setSource] = useState<JobSource>(initialSource)
   const [filters, setFilters] = useState<JobFilters>(DEFAULT_FILTERS)
+  const [sortOrder, setSortOrder] = useState<SortOrder>('descend')
   const [openKey, setOpenKey] = useState<string | null>(null)
+  // Jobs whose status changed in the table stay listed until the filters or
+  // tab change, so a row doesn't vanish the moment you mark it Skip.
+  const [kept, setKept] = useState<ReadonlySet<string>>(new Set())
 
   const all = useMemo(() => jobs.data ?? [], [jobs.data])
   const inTab = useMemo(() => all.filter((j) => j.source === source), [all, source])
-  const shown = useMemo(() => applyFilters(inTab, filters, lastVisit), [inTab, filters, lastVisit])
+  const shown = useMemo(() => {
+    const matching = new Set(applyFilters(inTab, filters, lastVisit).map(jobKeyString))
+    const listed = inTab.filter((j) => matching.has(jobKeyString(j)) || kept.has(jobKeyString(j)))
+    const direction = sortOrder === 'ascend' ? 1 : -1
+    return sortOrder ? listed.sort((a, b) => direction * (Date.parse(a.first_seen) - Date.parse(b.first_seen))) : listed
+  }, [inTab, filters, lastVisit, kept, sortOrder])
   // Look the open job up by key so the drawer shows saved changes.
   const openJob = all.find((j) => jobKeyString(j) === openKey) ?? null
+  const openIndex = shown.findIndex((j) => jobKeyString(j) === openKey)
+  const step = (by: number) => {
+    const next = shown[openIndex + by]
+    if (next) setOpenKey(jobKeyString(next))
+  }
 
+  const changeFilters = (next: JobFilters) => {
+    setFilters(next)
+    setKept(new Set())
+  }
   const changeSource = (next: JobSource) => {
     setSource(next)
+    setKept(new Set())
     try {
       localStorage.setItem(TAB_KEY, next)
     } catch {
@@ -53,7 +77,7 @@ export function JobsPage() {
     }
   }
 
-  // Which summary card (if any) the current filters correspond to.
+  // Which quick filter (if any) the current filters correspond to.
   const activeStat =
     filters.newOnly ? 'new-since'
       : sameStatuses(filters.statuses, ['new']) ? 'to-review'
@@ -62,24 +86,40 @@ export function JobsPage() {
             : sameStatuses(filters.statuses, ['offer']) ? 'offer'
               : null
 
+  const label = sourceLabel(source)
+  const empty: ReactNode = jobs.isPending ? ' '
+    : jobs.isError ? <Empty description="Jobs couldn't be loaded." />
+      : inTab.length === 0 ? <Empty description={`No ${label} jobs yet. They'll appear after the next scrape.`} />
+        : activeStat === 'to-review' ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`You're caught up: nothing left to review on ${label}.`} />
+          : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No jobs match these filters.">
+              <Button onClick={() => changeFilters(DEFAULT_FILTERS)}>Reset filters</Button>
+            </Empty>
+          )
+
   return (
     <Flex vertical gap={16}>
-      <Flex justify="space-between" align="center" wrap gap={8}>
+      <Flex justify="space-between" align="start" gap={8}>
         <div>
-          <Typography.Title level={3} style={{ margin: 0 }}>Jobs</Typography.Title>
-          <Typography.Text type="secondary">
-            {lastVisit ? `Last visit ${fromNow(lastVisit)}` : 'Welcome! New jobs get a dot from your next visit on.'}
-          </Typography.Text>
+          <Typography.Title level={1} style={{ margin: 0 }}>Jobs</Typography.Title>
+          <Freshness run={runs.data?.find((r) => r.source === source)} loaded={!runs.isPending} lastVisit={lastVisit} />
         </div>
-        <Button icon={<ReloadOutlined />} loading={jobs.isFetching} onClick={() => jobs.refetch()}>Refresh</Button>
+        <Button icon={<ReloadOutlined />} loading={jobs.isFetching || runs.isFetching}
+          aria-label={screens.sm ? undefined : 'Refresh'}
+          onClick={() => { jobs.refetch(); runs.refetch() }}>
+          {screens.sm && 'Refresh'}
+        </Button>
       </Flex>
 
-      {jobs.isError && <Alert type="error" title={`Couldn't load jobs: ${String(jobs.error)}`} />}
+      {jobs.isError && (
+        <Alert type="error" showIcon title="Couldn't load jobs" description={errorText(jobs.error)}
+          action={<Button size="small" onClick={() => jobs.refetch()}>Try again</Button>} />
+      )}
 
       <Tabs
         activeKey={source}
         onChange={(key) => changeSource(key as JobSource)}
-        style={{ marginBottom: -16 }}
+        tabBarStyle={{ marginBottom: 0 }}
         items={SOURCES.map((s) => {
           const fromSource = all.filter((j) => j.source === s)
           const fresh = fromSource.filter((j) => isNewSince(j, lastVisit)).length
@@ -88,8 +128,8 @@ export function JobsPage() {
             label: (
               <Flex gap={8} align="center">
                 {sourceLabel(s)}
-                <Tag style={{ marginInlineEnd: 0 }}>{fromSource.length}</Tag>
-                {fresh > 0 && <Badge count={`${fresh} new`} color="#4f46e5" />}
+                <span className="tabular" style={{ opacity: 0.8 }}>{fromSource.length}</span>
+                {fresh > 0 && <ToneTag color="cyan">{fresh} new</ToneTag>}
               </Flex>
             ),
           }
@@ -101,7 +141,7 @@ export function JobsPage() {
         lastVisit={lastVisit}
         activeKey={activeStat}
         onSelect={(stat) =>
-          setFilters({
+          changeFilters({
             ...filters,
             statuses: stat?.statuses ?? DEFAULT_FILTERS.statuses,
             newOnly: stat?.newOnly ?? false,
@@ -109,114 +149,191 @@ export function JobsPage() {
         }
       />
 
-      <JobFiltersBar jobs={inTab} filters={filters} onChange={setFilters} />
+      <Flex vertical gap={8}>
+        <JobFiltersBar jobs={inTab} filters={filters} onChange={changeFilters} />
+        <Typography.Text type="secondary" className="tabular" aria-live="polite">
+          {shown.length} of {inTab.length} {label} jobs
+        </Typography.Text>
+      </Flex>
 
-      <Typography.Text type="secondary">{shown.length} of {inTab.length} {sourceLabel(source)} jobs shown</Typography.Text>
-
-      <JobTable jobs={shown} loading={jobs.isPending} lastVisit={lastVisit}
+      <JobTable jobs={shown} loading={jobs.isPending} lastVisit={lastVisit} empty={empty}
+        sortOrder={sortOrder} onSortChange={setSortOrder}
+        onStatusChanged={(job) => setKept((k) => new Set(k).add(jobKeyString(job)))}
         onOpen={(job) => setOpenKey(jobKeyString(job))} />
 
-      <JobDrawer job={openJob} onClose={() => setOpenKey(null)} />
+      <JobDrawer job={openJob} onClose={() => setOpenKey(null)}
+        position={{ index: openIndex, total: shown.length }}
+        onPrev={() => step(-1)} onNext={() => step(1)} />
     </Flex>
   )
 }
 
-interface TableProps {
+/** When the scraper last ran for this source, and when you last visited. */
+function Freshness({ run, loaded, lastVisit }: { run: ScrapeRun | undefined; loaded: boolean; lastVisit: string | null }) {
+  const visit = lastVisit ? `Last visit ${fromNow(lastVisit)}` : 'First visit: new jobs get a dot from your next visit on'
+  if (!loaded) return <Typography.Text type="secondary">{visit}</Typography.Text>
+  if (!run) return <Typography.Text type="secondary">No scrape runs recorded yet · {visit}</Typography.Text>
+  const when = dayTime(run.finished_at ?? run.started_at)
+  return (
+    <Typography.Text type="secondary">
+      {run.error ? (
+        <Tooltip title={run.error}>
+          <Typography.Text type="danger">Last scrape failed {when}</Typography.Text>
+        </Tooltip>
+      ) : run.finished_at ? (
+        <>Last scrape {when}{run.kept !== null && ` · ${run.kept} kept`}</>
+      ) : (
+        <>Scrape running since {when}</>
+      )}
+      {' · '}{visit}
+    </Typography.Text>
+  )
+}
+
+function NewDot() {
+  const { token } = theme.useToken()
+  return (
+    <span title="New since your last visit" style={{
+      display: 'inline-block', width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 7,
+      background: token.colorPrimary,
+    }}>
+      <span className="sr-only">New:</span>
+    </span>
+  )
+}
+
+/** Title and company line, shared by the desktop and phone layouts. */
+function JobHeading({ job, isNew }: { job: Job; isNew: boolean }) {
+  return (
+    <Flex vertical gap={2} style={{ minWidth: 0 }}>
+      <Flex gap={6} align="flex-start">
+        {isNew && <NewDot />}
+        <Typography.Text strong className="clamp-2">{job.title}</Typography.Text>
+      </Flex>
+      <Typography.Text type="secondary" className="clamp-2">
+        {job.company ?? 'Unknown company'} · {job.location ?? 'No location'}
+      </Typography.Text>
+    </Flex>
+  )
+}
+
+/** Concerns first, so the two flags a phone has room for are the ones that matter. */
+const topFlags = (flags: string[], max: number) =>
+  [...flags].sort((a, b) => Number(flagTone(b) === 'warning') - Number(flagTone(a) === 'warning')).slice(0, max)
+
+interface JobTableProps {
   jobs: Job[]
   loading: boolean
   lastVisit: string | null
+  empty: ReactNode
+  sortOrder: SortOrder
+  onSortChange: (order: SortOrder) => void
+  onStatusChanged: (job: Job) => void
   onOpen: (job: Job) => void
 }
 
-function JobTable({ jobs, loading, lastVisit, onOpen }: TableProps) {
-  const { message } = App.useApp()
-  const update = useUpdateJob()
+function JobTable({ jobs, loading, lastVisit, empty, sortOrder, onSortChange, onStatusChanged, onOpen }: JobTableProps) {
+  const screens = Grid.useBreakpoint()
+  const status = (job: Job, size: 'small' | 'middle', width: number) => (
+    <StatusCell job={job} size={size} width={width} onChanged={onStatusChanged} />
+  )
+
+  const firstSeen = {
+    title: 'First seen',
+    dataIndex: 'first_seen',
+    sorter: true,
+    sortOrder,
+    sortDirections: ['descend', 'ascend'] as SortOrder[],
+    render: (iso: string) => <Tooltip title={dateTime(iso)}>{fromNow(iso)}</Tooltip>,
+  }
+
+  // Phones get one stacked column, so status and flags fit without scrolling sideways.
+  const phoneColumns: TableColumnsType<Job> = [
+    {
+      title: 'Job',
+      key: 'job',
+      render: (_, job) => (
+        <Flex vertical gap={8}>
+          <JobHeading job={job} isNew={isNewSince(job, lastVisit)} />
+          {job.flags.length > 0 && <FlagTags flags={topFlags(job.flags, 2)} />}
+          <Flex justify="space-between" align="center" gap={8}>
+            {status(job, 'middle', 150)}
+            <Typography.Text type="secondary">{fromNow(job.first_seen)}</Typography.Text>
+          </Flex>
+        </Flex>
+      ),
+    },
+  ]
 
   const columns: TableColumnsType<Job> = [
     {
       title: 'Job',
       key: 'job',
       render: (_, job) => (
-        <Flex gap={12} align="center">
+        <Flex gap={12} align="center" style={{ maxWidth: 460 }}>
           <CompanyAvatar company={job.company} />
-          <Flex vertical gap={2} style={{ minWidth: 0 }}>
-            <Flex gap={6} align="center">
-              {isNewSince(job, lastVisit) && <Badge status="processing" color="#4f46e5" title="New since your last visit" />}
-              <Typography.Text strong>{job.title}</Typography.Text>
-            </Flex>
-            <Typography.Text type="secondary">
-              {job.company ?? 'Unknown company'} · {job.location ?? 'No location'}
-            </Typography.Text>
-          </Flex>
+          <JobHeading job={job} isNew={isNewSince(job, lastVisit)} />
         </Flex>
       ),
     },
     {
       title: 'Arrangement',
       dataIndex: 'work_arrangements',
-      responsive: ['md'],
-      render: (arrangements: string[]) => arrangements.join(', ') || <Typography.Text type="secondary">—</Typography.Text>,
+      render: (arrangements: string[]) => arrangements.join(', ') || <Typography.Text type="secondary">Not listed</Typography.Text>,
     },
     {
       title: 'Score',
       dataIndex: 'match_score',
       align: 'right',
       hidden: !SHOW_MATCH_SCORE,
-      sorter: (a, b) => a.match_score - b.match_score,
     },
     {
       title: 'Skills',
       dataIndex: 'matched_skills',
-      responsive: ['lg'],
-      render: (skills: string[]) => <SkillTags skills={skills} color="blue" max={3} />,
+      responsive: ['xl'],
+      render: (skills: string[]) => <SkillTags skills={skills} color="cyan" max={3} />,
     },
     {
       title: 'Flags',
       dataIndex: 'flags',
-      responsive: ['xl'],
+      responsive: ['lg'],
       render: (flags: string[]) => <FlagTags flags={flags} />,
     },
     {
       title: 'Status',
       dataIndex: 'status',
-      render: (_, job) => (
-        // Stop clicks reaching the row, which would open the drawer.
-        <div onClick={(e) => e.stopPropagation()}>
-          <Select
-            size="small"
-            value={job.status}
-            options={statusOptions}
-            style={{ width: 120 }}
-            aria-label={`Status of ${job.title}`}
-            onChange={(status) =>
-              update.mutate({ key: job, patch: { status } }, {
-                onError: (e) => message.error(`Couldn't save: ${e.message}`),
-              })
-            }
-          />
-        </div>
-      ),
+      render: (_, job) => status(job, 'small', 132),
     },
-    {
-      title: 'First seen',
-      dataIndex: 'first_seen',
-      defaultSortOrder: 'descend',
-      sorter: (a, b) => Date.parse(a.first_seen) - Date.parse(b.first_seen),
-      render: (iso: string) => <Tooltip title={dateTime(iso)}>{fromNow(iso)}</Tooltip>,
-    },
+    firstSeen,
   ]
+
+  const onChange: TableProps<Job>['onChange'] = (_pagination, _filters, sorter) => {
+    if (!Array.isArray(sorter)) onSortChange((sorter.order ?? null) as SortOrder)
+  }
 
   return (
     <Table<Job>
       rowKey={jobKeyString}
-      columns={columns}
+      columns={screens.md ? columns : phoneColumns}
+      showHeader={screens.md}
       dataSource={jobs}
       loading={loading}
       size="middle"
+      onChange={onChange}
       pagination={{ defaultPageSize: 25, showSizeChanger: true, hideOnSinglePage: true }}
-      onRow={(job) => ({ onClick: () => onOpen(job), style: { cursor: 'pointer' } })}
-      scroll={{ x: 'max-content' }}
-      locale={{ emptyText: loading ? ' ' : 'No jobs match these filters' }}
+      onRow={(job) => ({
+        tabIndex: 0,
+        onClick: () => onOpen(job),
+        onKeyDown: (e) => {
+          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault()
+            onOpen(job)
+          }
+        },
+        style: { cursor: 'pointer' },
+      })}
+      scroll={screens.md ? { x: 'max-content' } : undefined}
+      locale={{ emptyText: empty }}
     />
   )
 }

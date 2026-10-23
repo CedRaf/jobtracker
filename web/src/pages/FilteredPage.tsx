@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Alert, Collapse, Empty, Flex, Segmented, Skeleton, Table, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Button, Collapse, Empty, Flex, Segmented, Skeleton, Table, Tag, Tooltip, Typography } from 'antd'
+import { ExportOutlined } from '@ant-design/icons'
 import type { TableColumnsType } from 'antd'
 import type { FilteredJob } from '../data/types'
 import { jobKeyString } from '../data/types'
 import { useFilteredJobs } from '../data/hooks'
-import { dateTime, fromNow, sourceLabel } from '../lib/format'
+import { dateTime, errorText, fromNow, sourceLabel } from '../lib/format'
 import { groupByReason, reasonDetail } from '../lib/reasons'
 
 const RANGES = [
@@ -13,23 +14,27 @@ const RANGES = [
   { label: '90 days', value: 90 },
 ]
 
+const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+
 const columns: TableColumnsType<FilteredJob> = [
   {
     title: 'Job',
     key: 'job',
     render: (_, job) => (
       <Flex vertical gap={2}>
-        <Typography.Link href={job.url} target="_blank" rel="noreferrer">{job.title}</Typography.Link>
-        <Typography.Text type="secondary">
+        <Typography.Link href={job.url} target="_blank" rel="noreferrer" className="clamp-2" style={{ maxWidth: 420 }}>
+          {job.title} <ExportOutlined aria-label="opens the listing in a new tab" style={{ fontSize: 12 }} />
+        </Typography.Link>
+        <Typography.Text type="secondary" className="clamp-2" style={{ maxWidth: 420 }}>
           {job.company ?? 'Unknown company'} · {job.location ?? 'No location'}
         </Typography.Text>
       </Flex>
     ),
   },
   {
-    title: 'Matched',
+    title: 'Matched text',
     dataIndex: 'reason',
-    render: (reason: string) => reasonDetail(reason) ?? reason,
+    render: (reason: string) => reasonDetail(reason) ?? <Typography.Text type="secondary">—</Typography.Text>,
   },
   {
     title: 'Arrangement',
@@ -41,7 +46,7 @@ const columns: TableColumnsType<FilteredJob> = [
     title: 'Source',
     dataIndex: 'source',
     responsive: ['md'],
-    render: (source: FilteredJob['source']) => <Tag>{sourceLabel(source)}</Tag>,
+    render: (source: FilteredJob['source']) => sourceLabel(source),
   },
   {
     title: 'Seen',
@@ -59,7 +64,7 @@ export function FilteredPage() {
     <Flex vertical gap={16}>
       <Flex justify="space-between" align="center" wrap gap={8}>
         <div>
-          <Typography.Title level={3} style={{ margin: 0 }}>Filtered out</Typography.Title>
+          <Typography.Title level={1} style={{ margin: 0 }}>Filtered out</Typography.Title>
           <Typography.Text type="secondary">
             Jobs the rules dropped, grouped by rule. A group with jobs you'd want means that rule is too strict.
           </Typography.Text>
@@ -67,20 +72,21 @@ export function FilteredPage() {
         <Segmented options={RANGES} value={days} onChange={(v) => setDays(v)} />
       </Flex>
 
-      {filtered.isError && <Alert type="error" title={`Couldn't load filtered jobs: ${String(filtered.error)}`} />}
-
-      {filtered.isPending ? (
+      {filtered.isError ? (
+        <Alert type="error" showIcon title="Couldn't load filtered jobs" description={errorText(filtered.error)}
+          action={<Button size="small" onClick={() => filtered.refetch()}>Try again</Button>} />
+      ) : filtered.isPending ? (
         <Skeleton active />
       ) : groups.length === 0 ? (
-        <Empty description={`Nothing filtered out in the last ${days} days`} />
+        <Empty description={`Nothing filtered out in the last ${days} days.`} />
       ) : (
         <Collapse
           items={groups.map((group) => ({
             key: group.reason,
             label: (
-              <Flex justify="space-between" gap={8}>
-                <Typography.Text strong>{group.reason}</Typography.Text>
-                <Tag style={{ marginInlineEnd: 0 }}>{group.jobs.length}</Tag>
+              <Flex gap={8} align="center" wrap>
+                <Typography.Text strong>{capitalise(group.reason)}</Typography.Text>
+                <Tag className="tabular" style={{ marginInlineEnd: 0 }}>{group.jobs.length}</Tag>
               </Flex>
             ),
             children: (

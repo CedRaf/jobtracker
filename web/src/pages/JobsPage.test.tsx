@@ -61,11 +61,43 @@ describe('JobsPage', () => {
     const drawer = await screen.findByRole('dialog')
     expect(await within(drawer).findByText(/is hiring a Junior Full Stack Developer/)).toBeInTheDocument()
 
-    await userEvent.type(within(drawer).getByPlaceholderText('Notes'), 'Apply this week')
+    await userEvent.type(within(drawer).getByLabelText('Notes'), 'Apply this week')
     await userEvent.click(within(drawer).getByRole('button', { name: 'Save' }))
 
     await screen.findByText('Saved')
     const saved = (await api.listJobs()).find((j) => j.title === 'Junior Full Stack Developer')
     expect(saved?.notes).toBe('Apply this week')
+  })
+
+  it('opens a job from the keyboard', async () => {
+    renderPage()
+    const title = await screen.findByText('Junior Full Stack Developer')
+    const row = title.closest('tr')!
+    row.focus()
+    await userEvent.keyboard('{Enter}')
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('keeps a skipped job listed and asks why', async () => {
+    renderPage()
+    await screen.findByText('Junior Full Stack Developer')
+    await userEvent.click(screen.getByRole('combobox', { name: 'Status of Junior Full Stack Developer' }))
+    await userEvent.click(await screen.findByTitle('Skip'))
+    expect(await screen.findByText('Why skip? (optional)')).toBeInTheDocument()
+    expect(screen.getByText('Junior Full Stack Developer')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Undo' })).toBeInTheDocument()
+  })
+
+  it('says when there is nothing left to review', async () => {
+    renderPage()
+    await screen.findByText('Junior Full Stack Developer')
+    await userEvent.click(screen.getByRole('tab', { name: /LinkedIn/ }))
+    await screen.findByText('AI Engineer – Junior')
+    for (const title of ['AI Engineer – Junior', 'React Developer (Entry Level)', 'Junior React Native Developer']) {
+      await userEvent.click(screen.getByRole('combobox', { name: `Status of ${title}` }))
+      await userEvent.click((await screen.findAllByTitle('Applied')).at(-1)!)
+    }
+    await userEvent.click(screen.getByRole('button', { name: /To review/ }))
+    expect(await screen.findByText(/You're caught up/)).toBeInTheDocument()
   })
 })

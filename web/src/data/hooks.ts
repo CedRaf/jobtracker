@@ -56,6 +56,11 @@ export function useUpdateJob() {
   })
 }
 
+export function useLatestScrapeRuns() {
+  const api = useApi()
+  return useQuery({ queryKey: ['scrapeRuns'], queryFn: () => api.latestScrapeRuns() })
+}
+
 export function useFilteredJobs(days: number) {
   const api = useApi()
   return useQuery({ queryKey: ['filtered', days], queryFn: () => api.listFilteredJobs(days) })

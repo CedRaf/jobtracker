@@ -1,4 +1,4 @@
-import { demoDescription, demoFilteredJobs, demoJobs } from './demoData'
+import { demoDescription, demoFilteredJobs, demoJobs, demoScrapeRuns } from './demoData'
 import type { DataApi, JobKey } from './types'
 
 const DEMO_USER = { id: 'demo-user', email: 'demo@example.com' }
@@ -35,6 +35,10 @@ export function createDemoApi(): DataApi {
       await wait()
       const since = Date.now() - days * 86_400_000
       return filtered.filter((j) => Date.parse(j.first_seen) >= since)
+    },
+    async latestScrapeRuns() {
+      await wait()
+      return demoScrapeRuns()
     },
     auth: {
       getUser: async () => DEMO_USER,

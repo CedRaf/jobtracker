@@ -58,6 +58,16 @@ export interface FilteredJob extends JobKey {
   first_seen: string
 }
 
+/** One scraper run for one source (the scrape_runs table, trimmed). */
+export interface ScrapeRun {
+  source: JobSource
+  started_at: string
+  finished_at: string | null
+  kept: number | null
+  /** Null = the run succeeded. */
+  error: string | null
+}
+
 export interface AppUser {
   id: string
   email: string | null
@@ -71,6 +81,8 @@ export interface DataApi {
   updateJob(key: JobKey, patch: JobPatch): Promise<Job>
   /** Filtered-out jobs first seen in the last `days` days. */
   listFilteredJobs(days: number): Promise<FilteredJob[]>
+  /** The most recent run for each source (at most one per source). */
+  latestScrapeRuns(): Promise<ScrapeRun[]>
   auth: {
     getUser(): Promise<AppUser | null>
     /** Calls back on sign-in/out; returns an unsubscribe function. */
