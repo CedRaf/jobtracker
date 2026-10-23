@@ -2,12 +2,12 @@
 secrets.json
 resume.pdf
 
-# Local run state and output
+# Local run state and output (scraper only: a bare data/ would also hide web/src/data/)
 .venv/
 __pycache__/
-logs/
-data/
-output/
+/scraper/logs/
+/scraper/data/
+/scraper/output/
 
 # Sheet exports
 *.csv
