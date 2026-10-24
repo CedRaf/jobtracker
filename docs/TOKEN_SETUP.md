@@ -38,7 +38,7 @@ Apps Script web app (doPost) checks SECRET_TOKEN ──► writes rows to the sh
    - **Description** (optional): `Apps Script timer starts the scraper workflow`
    - **Resource owner:** `CedRaf`
    - **Expiration:** choose the longest option offered (e.g. 1 year) and note the date. GitHub emails you before it expires.
-   - **Repository access:** **Only select repositories** → pick **`CedRaf/jobtrack`**
+   - **Repository access:** **Only select repositories** → pick **`CedRaf/jobtracker`**
 5. Under **Permissions → Repository permissions**, find **Actions** and set it to **Read and write**.
    - Leave everything else at *No access*. GitHub adds **Metadata: Read-only** automatically; that's expected.
 6. Click **Generate token**, then **copy the token** (starts with `github_pat_`).
@@ -119,7 +119,7 @@ git push
 | `Script property GITHUB_TOKEN is missing` | Step 2 not done, or a typo in the name | Add the property with the exact name `GITHUB_TOKEN` |
 | `GitHub returned 401` | Token pasted wrong, expired or deleted | Generate a new token (Step 1) and replace the property value |
 | `GitHub returned 403` | Actions permission isn't *Read and write* | Edit the token on GitHub → Actions → Read and write |
-| `GitHub returned 404` | Token wasn't given access to `jobtrack`, or the repo was renamed | Edit the token → Repository access → add the repo. If renamed, update `GITHUB_REPO` in `Code.gs` |
+| `GitHub returned 404` | Token wasn't given access to `jobtracker`, or the repo was renamed | Edit the token → Repository access → add the repo. If renamed, update `GITHUB_REPO` in `Code.gs` |
 | `GitHub returned 422` | Branch isn't `main`, or the workflow lost `workflow_dispatch` | Check `GITHUB_BRANCH` in `Code.gs` and the `on:` section of `scraper.yml` |
 | Timers never fire | Timers were removed, or the account that created them lost access | Run `installScraperTimers` again |
 

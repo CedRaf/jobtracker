@@ -148,7 +148,7 @@ function removeDraftTrigger() {
 // presses the workflow's "Run workflow" button at the hours below.
 // Needs the GITHUB_TOKEN script property; see TOKEN_SETUP.md.
 
-const GITHUB_REPO = 'CedRaf/jobtrack';  // owner/repo of the scraper workflow
+const GITHUB_REPO = 'CedRaf/jobtracker';  // owner/repo of the scraper workflow
 const GITHUB_WORKFLOW = 'scraper.yml';
 const GITHUB_BRANCH = 'main';
 const SCRAPER_HOURS = [11, 15];   // 11 AM and 3 PM, Manila time

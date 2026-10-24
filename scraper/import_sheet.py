@@ -8,11 +8,13 @@ once per source:
     python import_sheet.py --source linkedin --jobs "LinkedIn.csv" --filtered "LinkedIn Filtered.csv"
 
 Add --dry-run to only check the files and print what would be imported.
+Rows you don't want can simply be deleted from the CSV first (keep the header).
 
-Jobs already in Supabase (e.g. from dual-write runs) get the sheet's values,
-including your status and notes, so run this before you start editing jobs
-in the dashboard. Job descriptions aren't in the sheet; rows that already
-have one keep it. Filtered jobs that already exist are left alone.
+Jobs already in Supabase (e.g. found by the scraper since dual-write began)
+are left as they are, so statuses and notes you set in the dashboard win.
+Add --overwrite to replace them with the sheet's values instead (descriptions,
+which the sheet doesn't have, are kept either way). Filtered jobs that
+already exist are always left alone.
 Credentials: SUPABASE_URL / SUPABASE_SECRET_KEY or secrets.json, as for the scrapers.
 """
 
@@ -75,6 +77,8 @@ def main():
     parser.add_argument("--jobs", help="CSV export of the Jobs (or LinkedIn) tab")
     parser.add_argument("--filtered", help="CSV export of the Filtered (or LinkedIn Filtered) tab")
     parser.add_argument("--dry-run", action="store_true", help="check the files without importing")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="replace jobs already in Supabase with the sheet's values (status, notes, ...)")
     args = parser.parse_args()
     if not args.jobs and not args.filtered:
         parser.error("give --jobs and/or --filtered")
@@ -100,9 +104,13 @@ def main():
     if not client:
         print("Supabase credentials missing (SUPABASE_URL / SUPABASE_SECRET_KEY or secrets.json).")
         return 1
-    written = client.insert("jobs", jobs, on_conflict="source,external_id", merge=True)
+    written = client.insert("jobs", jobs, on_conflict="source,external_id", merge=args.overwrite)
     added = client.insert("filtered_jobs", filtered, on_conflict="source,external_id")
-    print(f"Imported: {written} jobs written, {added} new filtered jobs.")
+    if args.overwrite:
+        print(f"Imported: {written} jobs written (existing ones overwritten), {added} new filtered jobs.")
+    else:
+        print(f"Imported: {written} new jobs ({len(jobs) - written} already in Supabase, kept as they are), "
+              f"{added} new filtered jobs.")
     return 0
 
 
