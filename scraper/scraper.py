@@ -6,9 +6,12 @@ Usage:
     python scraper.py --dry-run    # don't send anywhere; write CSVs to output/
     python scraper.py --dry-run --limit 10   # quick test: only evaluate 10 new jobs
 
-Settings: config.json (searches, and "outputs": where jobs go) and secrets.json,
-or environment variables (GitHub Actions): SHEET_WEBAPP_URL / SHEET_TOKEN for
-the sheet, SUPABASE_URL / SUPABASE_SECRET_KEY for Supabase.
+Settings:
+- Search terms and filter rules: edited in the dashboard (Settings page) and
+  loaded from Supabase each run; defaults in default_settings.json (settings.py).
+- config.json: operational settings, and "outputs" (where jobs go).
+- secrets.json or environment variables (GitHub Actions): SHEET_WEBAPP_URL /
+  SHEET_TOKEN for the sheet, SUPABASE_URL / SUPABASE_SECRET_KEY for Supabase.
 Log: logs/scraper.log
 """
 
@@ -29,6 +32,7 @@ import requests
 
 import jobstreet_api as api
 import rules
+import settings as settings_module
 import sinks
 
 ROOT = Path(__file__).resolve().parent
@@ -311,11 +315,17 @@ def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix=
     then mark the jobs as seen. prefix picks the sheet tabs and CSV names.
     """
     cfg = load_json(CONFIG_FILE)
-    rules.configure(cfg)
     secrets = load_secrets()
     seen = load_json(seen_file, {})
 
     with sinks.run_log(cfg, secrets, source, dry_run=args.dry_run) as stats:
+        # Search terms and filter rules come from the settings edited in the
+        # dashboard; config.json keeps the operational settings.
+        scraper_settings, version = sinks.load_settings(secrets)
+        rules.configure(scraper_settings)
+        cfg = {**cfg, **settings_module.search_config(scraper_settings)}
+        stats["settings_version"] = version
+
         session = api_module.new_session()
         jobs = collect_fn(session, cfg)
         candidates = [j for j in jobs.values() if j["id"] not in seen]

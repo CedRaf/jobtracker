@@ -1,5 +1,5 @@
 import { createClient, type User } from '@supabase/supabase-js'
-import type { AppUser, DataApi, FilteredJob, Job, JobKey, ScrapeRun, StatusChange } from './types'
+import type { AppUser, DataApi, FilteredJob, Job, JobKey, ScrapeRun, SettingsVersion, StatusChange } from './types'
 
 // Everything except the description, which is only loaded for the open job.
 const JOB_COLUMNS = [
@@ -12,7 +12,10 @@ const JOB_COLUMNS = [
 const FILTERED_COLUMNS =
   'source,external_id,title,company,location,work_arrangements,search_terms,reason,url,first_seen'
 
-const RUN_COLUMNS = 'source,started_at,finished_at,found,evaluated,kept,filtered,expired,error,github_run_id'
+const RUN_COLUMNS =
+  'source,started_at,finished_at,found,evaluated,kept,filtered,expired,error,github_run_id,settings_version'
+
+const SETTINGS_COLUMNS = 'version,settings,note,created_at'
 
 const HISTORY_COLUMNS = 'job_source,job_external_id,from_status,to_status,changed_at'
 
@@ -113,6 +116,27 @@ export function createSupabaseApi(url: string, publishableKey: string): DataApi 
           .range(from, to)
           .returns<ScrapeRun[]>(),
       )
+    },
+
+    async listSettingsVersions() {
+      const { data, error } = await supabase
+        .from('scraper_settings_versions')
+        .select(SETTINGS_COLUMNS)
+        .order('version', { ascending: false })
+        .limit(50)
+        .returns<SettingsVersion[]>()
+      if (error) throw error
+      return data ?? []
+    },
+
+    async saveSettings(settings, note) {
+      const { data, error } = await supabase
+        .from('scraper_settings_versions')
+        .insert({ settings, note })
+        .select(SETTINGS_COLUMNS)
+        .single<SettingsVersion>()
+      if (error) throw error
+      return data
     },
 
     listStatusHistory: () =>

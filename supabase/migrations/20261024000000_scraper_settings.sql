@@ -1,0 +1,709 @@
+-- Scraper settings, editable from the dashboard (Settings page).
+--
+-- Append-only versions: saving inserts a new row and the newest row is the
+-- current settings. Rolling back inserts an old version's settings again, so
+-- the history is never rewritten. Each scraper run loads the newest version
+-- at start and records its number in scrape_runs.settings_version.
+--
+-- The JSON shape is validated by the scraper (scraper/settings.py, which
+-- falls back to its defaults if a version is malformed) and by the dashboard
+-- before saving; the database only checks that it is a JSON object.
+
+create table public.scraper_settings_versions (
+  version     integer generated always as identity primary key,
+  settings    jsonb not null check (jsonb_typeof(settings) = 'object'),
+  note        text,
+  created_at  timestamptz not null default now(),
+  created_by  uuid default auth.uid()
+);
+
+alter table public.scrape_runs add column settings_version integer
+  references public.scraper_settings_versions (version);
+
+-- ===== Row-level security and grants =======================================
+
+alter table public.scraper_settings_versions enable row level security;
+
+create policy "app users read settings" on public.scraper_settings_versions
+  for select to authenticated using ((select public.is_app_user()));
+
+create policy "app users add settings versions" on public.scraper_settings_versions
+  for insert to authenticated with check ((select public.is_app_user()));
+
+-- No update or delete for anyone but the service role: history stays intact.
+revoke all on public.scraper_settings_versions from anon, authenticated;
+grant select on public.scraper_settings_versions to authenticated;
+-- Only these columns; version, created_at and created_by are filled in by the database.
+grant insert (settings, note) on public.scraper_settings_versions to authenticated;
+grant all on public.scraper_settings_versions to service_role;
+grant usage, select on sequence public.scraper_settings_versions_version_seq
+  to authenticated, service_role;
+
+-- ===== Version 1: the defaults (scraper/default_settings.json) =============
+
+insert into public.scraper_settings_versions (settings, note, created_by)
+values ($settings${
+  "schema": 1,
+  "search": {
+    "keywords": [
+      "junior developer",
+      "junior software engineer",
+      "junior web developer",
+      "junior full stack developer",
+      "junior react developer",
+      "junior .net developer",
+      "junior python developer",
+      "associate software engineer",
+      "software engineer trainee",
+      "entry level developer",
+      "ai developer",
+      "ai engineer"
+    ],
+    "listed_within_days": 3,
+    "max_pages_per_search": 2,
+    "radius_km": 50,
+    "search_remote_elsewhere": true
+  },
+  "min_match_score": 3,
+  "experience": {
+    "flag_years": 3,
+    "drop_years": 5
+  },
+  "checks": {
+    "night_shift": "drop",
+    "foreign_hours": "drop",
+    "language_requirement": "drop",
+    "training_bond": "flag"
+  },
+  "title_rules": [
+    {
+      "label": "seniority title",
+      "enabled": true,
+      "words": [
+        "senior",
+        "sr",
+        "snr",
+        "lead",
+        "principal",
+        "staff engineer",
+        "staff software engineer",
+        "manager",
+        "architect",
+        "head of",
+        "mid level",
+        "director",
+        "supervisor",
+        "vp"
+      ]
+    },
+    {
+      "label": "internship",
+      "enabled": true,
+      "words": [
+        "intern",
+        "interns",
+        "internship",
+        "ojt",
+        "on the job training",
+        "practicum"
+      ]
+    },
+    {
+      "label": "non-dev / IT role",
+      "enabled": true,
+      "words": [
+        "it support",
+        "technical support",
+        "tech support",
+        "help desk",
+        "desktop support",
+        "service desk",
+        "network engineer",
+        "network administrator",
+        "network admin",
+        "network technician",
+        "network specialist",
+        "system administrator",
+        "systems administrator",
+        "sysadmin",
+        "it staff",
+        "it specialist",
+        "it technician",
+        "it assistant",
+        "computer technician",
+        "noc",
+        "field engineer",
+        "sales",
+        "instructor",
+        "teacher",
+        "tutor",
+        "data encoder",
+        "data entry",
+        "customer service",
+        "virtual assistant",
+        "call center",
+        "csr"
+      ]
+    },
+    {
+      "label": "support role",
+      "enabled": true,
+      "words": [
+        "application support",
+        "support engineer",
+        "support analyst",
+        "l1/l2",
+        "l1/l3",
+        "l2/l3",
+        "l2 support",
+        "l3 support"
+      ]
+    },
+    {
+      "label": "analyst role",
+      "enabled": true,
+      "words": [
+        "system analyst",
+        "systems analyst",
+        "system analysis",
+        "systems analysis",
+        "business analyst",
+        "qa analyst"
+      ]
+    },
+    {
+      "label": "data/platform role",
+      "enabled": true,
+      "words": [
+        "data engineer",
+        "integration engineer",
+        "platform engineer",
+        "databricks",
+        "data analyst",
+        "devops",
+        "site reliability",
+        "sre",
+        "cloud engineer",
+        "infrastructure engineer"
+      ]
+    },
+    {
+      "label": "automation/low-code role",
+      "enabled": true,
+      "words": [
+        "automation engineer",
+        "automation specialist",
+        "rpa",
+        "power automate",
+        "power apps",
+        "servicenow",
+        "salesforce admin",
+        "salesforce administrator",
+        "erpnext",
+        "frappe",
+        "odoo"
+      ]
+    },
+    {
+      "label": "design/content role",
+      "enabled": true,
+      "words": [
+        "designer",
+        "ux",
+        "ui/ux",
+        "ux/ui",
+        "graphic design",
+        "seo",
+        "wordpress",
+        "web editor",
+        "content writer",
+        "content creator",
+        "content editor",
+        "content moderator",
+        "content specialist",
+        "content manager"
+      ]
+    },
+    {
+      "label": "non-dev AI role",
+      "enabled": true,
+      "words": [
+        "annotator",
+        "annotation",
+        "ai trainer",
+        "data labeling",
+        "data labelling",
+        "data labeler",
+        "data labeller",
+        "ai assistant",
+        "ai process",
+        "ai optimisation",
+        "ai optimization",
+        "ai operations",
+        "prompt writer",
+        "prompt rater",
+        "rater"
+      ]
+    },
+    {
+      "label": "language requirement",
+      "enabled": true,
+      "words": [
+        "mandarin",
+        "chinese",
+        "japanese",
+        "korean",
+        "cantonese",
+        "german",
+        "french",
+        "spanish",
+        "vietnamese",
+        "thai",
+        "bilingual"
+      ]
+    },
+    {
+      "label": "spam/not a job",
+      "enabled": true,
+      "words": [
+        "earn from",
+        "unused code",
+        "founder",
+        "founders",
+        "side income",
+        "commission only"
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "name": "TypeScript",
+      "weight": 3,
+      "aliases": [
+        "typescript"
+      ]
+    },
+    {
+      "name": "JavaScript",
+      "weight": 3,
+      "aliases": [
+        "javascript",
+        "es6"
+      ]
+    },
+    {
+      "name": "React",
+      "weight": 3,
+      "aliases": [
+        "react",
+        "reactjs",
+        "react.js"
+      ],
+      "exclude": [
+        "react native"
+      ]
+    },
+    {
+      "name": "C#",
+      "weight": 3,
+      "aliases": [
+        "c#",
+        "c sharp"
+      ]
+    },
+    {
+      "name": ".NET",
+      "weight": 3,
+      "aliases": [
+        ".net",
+        "asp.net",
+        "dotnet"
+      ]
+    },
+    {
+      "name": "Node.js",
+      "weight": 3,
+      "aliases": [
+        "node",
+        "nodejs",
+        "node.js"
+      ]
+    },
+    {
+      "name": "Express",
+      "weight": 3,
+      "aliases": [
+        "express.js",
+        "expressjs",
+        "node/express",
+        "node.js/express",
+        "nodejs/express",
+        "node, express",
+        "node and express",
+        "node & express"
+      ]
+    },
+    {
+      "name": "PostgreSQL",
+      "weight": 3,
+      "aliases": [
+        "postgres",
+        "postgresql",
+        "postgre"
+      ]
+    },
+    {
+      "name": "MySQL",
+      "weight": 3,
+      "aliases": [
+        "mysql"
+      ]
+    },
+    {
+      "name": "SQL",
+      "weight": 3,
+      "aliases": [
+        "sql"
+      ]
+    },
+    {
+      "name": "Prisma",
+      "weight": 3,
+      "aliases": [
+        "prisma"
+      ]
+    },
+    {
+      "name": "Drizzle",
+      "weight": 3,
+      "aliases": [
+        "drizzle"
+      ]
+    },
+    {
+      "name": "Python",
+      "weight": 2,
+      "aliases": [
+        "python"
+      ]
+    },
+    {
+      "name": "React Native",
+      "weight": 2,
+      "aliases": [
+        "react native"
+      ]
+    },
+    {
+      "name": "AI/LLM",
+      "weight": 2,
+      "aliases": [
+        "llm",
+        "llms",
+        "large language model",
+        "large language models",
+        "generative ai",
+        "gen ai",
+        "rag",
+        "retrieval augmented",
+        "machine learning",
+        "ai"
+      ]
+    },
+    {
+      "name": "LangChain",
+      "weight": 2,
+      "aliases": [
+        "langchain"
+      ]
+    },
+    {
+      "name": "Neo4j",
+      "weight": 2,
+      "aliases": [
+        "neo4j"
+      ]
+    },
+    {
+      "name": "Vector DB",
+      "weight": 2,
+      "aliases": [
+        "milvus",
+        "pinecone",
+        "weaviate",
+        "qdrant",
+        "vector db",
+        "vector database"
+      ]
+    },
+    {
+      "name": "pandas",
+      "weight": 2,
+      "aliases": [
+        "pandas"
+      ]
+    },
+    {
+      "name": "scikit-learn",
+      "weight": 2,
+      "aliases": [
+        "scikit learn",
+        "sklearn"
+      ]
+    },
+    {
+      "name": "REST API",
+      "weight": 2,
+      "aliases": [
+        "rest api",
+        "rest apis",
+        "restful api",
+        "restful apis"
+      ]
+    },
+    {
+      "name": "WebSockets",
+      "weight": 2,
+      "aliases": [
+        "web socket",
+        "web sockets",
+        "socket.io"
+      ]
+    },
+    {
+      "name": "Git",
+      "weight": 2,
+      "aliases": [
+        "git",
+        "github",
+        "gitlab"
+      ]
+    },
+    {
+      "name": "Java",
+      "weight": 1,
+      "aliases": [
+        "java"
+      ],
+      "off_stack": true
+    },
+    {
+      "name": "Azure",
+      "weight": 1,
+      "aliases": [
+        "azure"
+      ]
+    },
+    {
+      "name": "Postman",
+      "weight": 1,
+      "aliases": [
+        "postman"
+      ]
+    },
+    {
+      "name": "Vercel",
+      "weight": 1,
+      "aliases": [
+        "vercel"
+      ]
+    }
+  ],
+  "other_stacks": [
+    {
+      "name": "PHP",
+      "aliases": [
+        "php"
+      ],
+      "off_stack": true
+    },
+    {
+      "name": "Laravel",
+      "aliases": [
+        "laravel"
+      ],
+      "off_stack": true
+    },
+    {
+      "name": "Spring",
+      "aliases": [
+        "spring",
+        "spring boot"
+      ],
+      "off_stack": true
+    },
+    {
+      "name": "Angular",
+      "aliases": [
+        "angular",
+        "angularjs"
+      ]
+    },
+    {
+      "name": "Vue",
+      "aliases": [
+        "vue",
+        "vuejs",
+        "vue.js"
+      ]
+    },
+    {
+      "name": "Next.js",
+      "aliases": [
+        "nextjs",
+        "next.js"
+      ]
+    },
+    {
+      "name": "Ruby/Rails",
+      "aliases": [
+        "ruby",
+        "rails"
+      ]
+    },
+    {
+      "name": "Go",
+      "aliases": [
+        "golang"
+      ]
+    },
+    {
+      "name": "Kotlin",
+      "aliases": [
+        "kotlin"
+      ]
+    },
+    {
+      "name": "Swift",
+      "aliases": [
+        "swift"
+      ]
+    },
+    {
+      "name": "Flutter",
+      "aliases": [
+        "flutter",
+        "dart"
+      ]
+    },
+    {
+      "name": "Django",
+      "aliases": [
+        "django"
+      ]
+    },
+    {
+      "name": "Flask",
+      "aliases": [
+        "flask"
+      ]
+    },
+    {
+      "name": "FastAPI",
+      "aliases": [
+        "fastapi"
+      ]
+    },
+    {
+      "name": "MongoDB",
+      "aliases": [
+        "mongo",
+        "mongodb"
+      ]
+    },
+    {
+      "name": "AWS",
+      "aliases": [
+        "aws",
+        "amazon web services"
+      ]
+    },
+    {
+      "name": "Docker",
+      "aliases": [
+        "docker"
+      ]
+    },
+    {
+      "name": "Kubernetes",
+      "aliases": [
+        "kubernetes",
+        "k8s"
+      ]
+    },
+    {
+      "name": "Salesforce",
+      "aliases": [
+        "salesforce",
+        "apex"
+      ],
+      "off_stack": true
+    },
+    {
+      "name": "SAP/ABAP",
+      "aliases": [
+        "sap",
+        "abap"
+      ],
+      "off_stack": true
+    },
+    {
+      "name": "COBOL",
+      "aliases": [
+        "cobol",
+        "mainframe"
+      ],
+      "off_stack": true
+    },
+    {
+      "name": "WordPress",
+      "aliases": [
+        "wordpress"
+      ],
+      "off_stack": true
+    },
+    {
+      "name": "Shopify",
+      "aliases": [
+        "shopify"
+      ]
+    },
+    {
+      "name": "Magento",
+      "aliases": [
+        "magento"
+      ]
+    },
+    {
+      "name": "Power Platform",
+      "aliases": [
+        "power apps",
+        "power automate"
+      ]
+    },
+    {
+      "name": "RPA",
+      "aliases": [
+        "uipath",
+        "rpa"
+      ]
+    },
+    {
+      "name": "ServiceNow",
+      "aliases": [
+        "servicenow"
+      ],
+      "off_stack": true
+    },
+    {
+      "name": "ERPNext/Odoo",
+      "aliases": [
+        "erpnext",
+        "frappe",
+        "odoo"
+      ],
+      "off_stack": true
+    }
+  ],
+  "previous_employers": []
+}$settings$::jsonb, 'Defaults from scraper/default_settings.json', null);

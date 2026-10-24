@@ -206,6 +206,43 @@ Analytics are computed in the browser from tables RLS already exposes (`jobs`, `
   - The catch: compose links can't attach files, so attach the resume by hand. A Supabase Edge Function could create real Gmail drafts later (Phase 6).
 - [x] Tests: analytics logic, the email template, and the board and analytics pages on demo data (65 web tests in total). The demo data now has a month of jobs, status history and two weeks of scraper runs, including one failed and one interrupted run.
 
+### Editable scraper rules (pulled forward from Phase 6)
+The search terms and filter rules used to be hard-coded in `scraper/rules.py` and `config.json`. They're now settings edited on the dashboard's **Rules** page.
+
+- **Storage:** `supabase/migrations/20261024000000_scraper_settings.sql`.
+  - The `scraper_settings_versions` table is append-only: every save adds a version, and the newest one is current. Restoring an old version saves it again as a new one, so history is never rewritten.
+  - The migration seeds version 1 with the defaults.
+  - `scrape_runs.settings_version` records which version each run used.
+- **Defaults:** `scraper/default_settings.json`.
+  - The same values sit in the migration seed and in `web/src/data/defaultSettings.json`. Scraper tests check that all three match.
+- **Scraper:**
+  - `settings.py` validates settings, with any missing sections falling back to the defaults.
+  - `sinks.load_settings()` loads the newest version at the start of each run. If there are no credentials, Supabase is unreachable, or the saved version is invalid, the run logs it and uses the defaults instead of failing.
+  - `rules.py` builds its patterns from the settings. Rules are plain words and phrases, never regexes: matching ignores case and works on whole words, and spaces and hyphens are interchangeable.
+  - Compared side by side on 182 real titles and sample descriptions, the old and new rules agree. The one difference is an improvement: "Help-Desk" is now caught.
+  - `config.json` keeps only operational settings: location string, sort, delay, retention and outputs.
+- **What's editable:**
+  - Search keywords, days back, pages per search, radius, and whether to search remote jobs outside Cebu.
+  - Title rules: on/off, name and words. You can add or delete rules.
+  - Description checks: drop or ignore night shift, foreign hours and language requirements; flag or ignore training bonds.
+  - The experience flag and drop thresholds.
+  - Skills (weight, spellings, "except when part of…", off-stack), the minimum match score, other stacks, and previous employers.
+- **Stays in code:**
+  - The home location. LinkedIn needs a location ID, so it can't be a free-text city.
+  - The detection patterns for night shift, foreign hours, languages and experience parsing.
+  - The positive signals, because the dashboard's flag categories depend on them.
+- **Dashboard:** `/rules` (`pages/SettingsPage.tsx`).
+  - Tabbed editor with a save bar and an optional note per version.
+  - Validation that mirrors the scraper's (`lib/scraperSettings.ts`), so a saved version is never rejected.
+  - "Reset to defaults", and a history drawer with what changed in each version and Restore.
+- **Entry-level priority** (dashboard only; nothing is dropped):
+  - A green "Entry-level" marker on jobs whose title contains a junior-level word (junior, jr, associate, entry level, trainee, graduate, fresh grad, new grad, apprentice, L1, level 1). If switched on, jobs whose description says fresh grads OK / entry level / no experience required get it too. Hover shows why.
+  - The Jobs page lists entry-level jobs first: junior titles, then fresh-grad descriptions, then the rest, newest first within each. An "Entry-level first" switch (remembered per browser) turns that off.
+  - There's also an "Entry-level only" filter. The marker shows on board cards and in the job drawer.
+  - The words live in the `entry_level` settings section (Rules page → Entry-level tab).
+  - It's computed in the browser (`web/src/lib/entryLevel.ts`, a port of the scraper's phrase matching), so it applies to existing jobs at once. Versions saved before this section existed use the default words.
+- **Order matters when deploying:** push the migration (`npx supabase db push`) before using the new dashboard. The Analytics page now reads `scrape_runs.settings_version`, which doesn't exist until the migration runs. The scraper copes either way.
+
 ### Phase 4: Cutover
 - [ ] Use the dashboard daily for 1–2 weeks while dual-writing.
 - [ ] Remove `"sheet"` from `outputs`, keeping the code so it's a one-line rollback.
@@ -227,7 +264,8 @@ Analytics are computed in the browser from tables RLS already exposes (`jobs`, `
 
 ### Phase 6: Optional extras (pick what sounds fun)
 - **LLM fit scoring:** a short "why this fits / gaps" summary for each job against your resume, stored next to `match_score`.
-- **Rules editor UI:** move keywords, exclusions and skill weights from `config.json` into a `settings` table that you edit in the dashboard.
+- [x] **Rules editor UI:** done early, see "Editable scraper rules" below.
+- [ ] **Rules preview:** in the Rules editor, show what a title-rule edit would change before saving ("3 kept jobs would now be dropped, 5 filtered jobs would be kept"), checked in the browser against the jobs and filtered jobs already loaded.
 - **Real Gmail drafts** from the dashboard via a Supabase Edge Function. This needs Google OAuth, so it's more setup.
 - **Notifications:** a daily digest email or Discord/Telegram message with the top new matches.
 

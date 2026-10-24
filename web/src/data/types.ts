@@ -72,6 +72,71 @@ export interface ScrapeRun {
   /** Null = the run succeeded. */
   error: string | null
   github_run_id: string | null
+  /** The scraper settings version the run used; null = the built-in defaults. */
+  settings_version: number | null
+}
+
+// ---- Scraper settings (mirrors scraper/settings.py; defaults in defaultSettings.json) ----
+
+export type DropOrOff = 'drop' | 'off'
+
+export interface TitleRule {
+  label: string
+  enabled: boolean
+  words: string[]
+}
+
+export interface SkillSetting {
+  name: string
+  /** 3 core, 2 secondary, 1 adjacent */
+  weight: 1 | 2 | 3
+  aliases: string[]
+  /** Phrases that don't count even though they contain an alias ("react native" for React). */
+  exclude?: string[]
+  off_stack?: boolean
+}
+
+export interface StackSetting {
+  name: string
+  aliases: string[]
+  off_stack?: boolean
+}
+
+export interface ScraperSettings {
+  schema: 1
+  search: {
+    keywords: string[]
+    listed_within_days: number
+    max_pages_per_search: number
+    radius_km: number
+    search_remote_elsewhere: boolean
+  }
+  /** Dashboard only: which jobs get the Entry-level marker and sort first. Never drops anything. */
+  entry_level: {
+    title_words: string[]
+    /** Also count descriptions flagged "fresh grads OK", "entry level" or "no experience required". */
+    description_signals: boolean
+  }
+  min_match_score: number
+  experience: { flag_years: number | null; drop_years: number | null }
+  checks: {
+    night_shift: DropOrOff
+    foreign_hours: DropOrOff
+    language_requirement: DropOrOff
+    training_bond: 'flag' | 'off'
+  }
+  title_rules: TitleRule[]
+  skills: SkillSetting[]
+  other_stacks: StackSetting[]
+  previous_employers: string[]
+}
+
+/** One saved version of the settings (the scraper_settings_versions table). The newest is current. */
+export interface SettingsVersion {
+  version: number
+  settings: ScraperSettings
+  note: string | null
+  created_at: string
 }
 
 /** One status change, recorded by a database trigger (the status_history table). */
@@ -102,6 +167,10 @@ export interface DataApi {
   listScrapeRuns(days: number): Promise<ScrapeRun[]>
   /** Every recorded status change, oldest first. */
   listStatusHistory(): Promise<StatusChange[]>
+  /** Saved scraper settings, newest (= current) first. */
+  listSettingsVersions(): Promise<SettingsVersion[]>
+  /** Saves settings as a new version, which the next scraper run uses. */
+  saveSettings(settings: ScraperSettings, note: string | null): Promise<SettingsVersion>
   auth: {
     getUser(): Promise<AppUser | null>
     /** Calls back on sign-in/out; returns an unsubscribe function. */

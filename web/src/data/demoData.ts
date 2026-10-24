@@ -201,6 +201,7 @@ export function demoScrapeRuns(): ScrapeRun[] {
         expired: failed || interrupted ? null : expired,
         error: failed ? 'RuntimeError: Every search failed; JobStreet may be blocking requests or changed its API.' : null,
         github_run_id: null,
+        settings_version: 1,
       })
     }
   }

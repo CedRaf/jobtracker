@@ -12,7 +12,8 @@ import { CompanyAvatar } from './CompanyAvatar'
 import { DraftEmailButton } from './DraftEmail'
 import { StatusSelect } from './StatusControl'
 import { useChangeStatus } from './useChangeStatus'
-import { FlagTags, SkillTags } from './Tags'
+import { EntryLevelTag, FlagTags, SkillTags } from './Tags'
+import { useEntryLevel } from '../lib/entryLevel'
 
 interface Props {
   job: Job | null
@@ -112,13 +113,17 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 function JobDetails({ job, onDirtyChange }: { job: Job; onDirtyChange: (dirty: boolean) => void }) {
   const description = useJobDescription(job)
+  const entry = useEntryLevel()(job)
 
   return (
     <Flex vertical gap={20}>
       <Flex gap={12} align="center">
         <CompanyAvatar company={job.company} size={40} />
         <div style={{ minWidth: 0 }}>
-          <Typography.Text strong style={{ display: 'block' }}>{job.company ?? 'Unknown company'}</Typography.Text>
+          <Flex gap={8} align="center" wrap>
+            <Typography.Text strong>{job.company ?? 'Unknown company'}</Typography.Text>
+            <EntryLevelTag level={entry} />
+          </Flex>
           <Typography.Text type="secondary">
             {job.location ?? 'No location'} · {sourceLabel(job.source)} · found {fromNow(job.first_seen)}
           </Typography.Text>

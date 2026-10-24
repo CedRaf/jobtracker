@@ -65,9 +65,14 @@ function FilterControls({ jobs, filters, onChange, onHide, phone }: Props & { on
             onChange={(v) => set('minScore', v ?? 0)} style={{ width: width(130) }} />
         )}
         <Flex gap={8} align="center" justify="space-between" style={{ width: phone ? '100%' : undefined }}>
-          <Checkbox checked={filters.newOnly} onChange={(e) => set('newOnly', e.target.checked)}>
-            New since last visit
-          </Checkbox>
+          <Flex gap={4} wrap>
+            <Checkbox checked={filters.entryLevelOnly} onChange={(e) => set('entryLevelOnly', e.target.checked)}>
+              Entry-level only
+            </Checkbox>
+            <Checkbox checked={filters.newOnly} onChange={(e) => set('newOnly', e.target.checked)}>
+              New since last visit
+            </Checkbox>
+          </Flex>
           <Flex>
             <Button type="link" disabled={!activeFilterCount(filters)} onClick={() => onChange(DEFAULT_FILTERS)}>
               Reset

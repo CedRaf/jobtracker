@@ -22,6 +22,7 @@ export function GlobalStyles() {
       .stat-toggle:focus-visible { outline: 2px solid ${token.colorPrimary}; outline-offset: 2px; }
       .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
         overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+      .save-bar { position: sticky; bottom: 0; z-index: 10; margin: 16px -16px -16px; padding: 12px 16px; }
       .chart-subtitle { font-weight: 400; font-size: 12px; color: ${token.colorTextSecondary}; }
       .recharts-wrapper *:focus { outline: none; }
       .board { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px;

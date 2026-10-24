@@ -11,6 +11,7 @@ import { JobsPage } from './pages/JobsPage'
 import { FilteredPage } from './pages/FilteredPage'
 import { BoardPage } from './pages/BoardPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
+import { SettingsPage } from './pages/SettingsPage'
 import { GlobalStyles } from './components/GlobalStyles'
 import { LastVisitContext, startVisit, useTrackVisit } from './lib/lastVisit'
 import { ThemeModeContext, themeConfig, useThemeMode } from './lib/theme'
@@ -42,6 +43,7 @@ export default function App() {
                           <Route path="board" element={<BoardPage />} />
                           <Route path="analytics" element={<AnalyticsPage />} />
                           <Route path="filtered" element={<FilteredPage />} />
+                          <Route path="rules" element={<SettingsPage />} />
                           <Route path="*" element={<Navigate to="/" replace />} />
                         </Route>
                       </Routes>

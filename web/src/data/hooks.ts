@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { DataApi, Job, JobKey, JobPatch } from './types'
+import type { DataApi, Job, JobKey, JobPatch, ScraperSettings } from './types'
 import { jobKeyString } from './types'
 
 export const ApiContext = createContext<DataApi | null>(null)
@@ -66,6 +66,23 @@ export function useLatestScrapeRuns() {
 export function useScrapeRuns(days: number) {
   const api = useApi()
   return useQuery({ queryKey: ['scrapeRuns', days], queryFn: () => api.listScrapeRuns(days) })
+}
+
+const SETTINGS = ['settingsVersions'] as const
+
+export function useSettingsVersions() {
+  const api = useApi()
+  return useQuery({ queryKey: SETTINGS, queryFn: () => api.listSettingsVersions() })
+}
+
+export function useSaveSettings() {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ settings, note }: { settings: ScraperSettings; note: string | null }) =>
+      api.saveSettings(settings, note),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: SETTINGS }),
+  })
 }
 
 const HISTORY = ['statusHistory'] as const

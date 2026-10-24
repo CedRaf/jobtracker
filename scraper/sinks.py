@@ -18,6 +18,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+import settings as settings_module
+
 log = logging.getLogger("scraper")
 
 MANILA = timezone(timedelta(hours=8))
@@ -146,6 +148,37 @@ class SupabaseClient:
         params = {column: f"eq.{value}" for column, value in match.items()}
         self._request("PATCH", table, params=params, json=values)
 
+    def select(self, table, params):
+        return self._request("GET", table, params=params) or []
+
+
+def load_settings(secrets):
+    """
+    The scraper settings to use: (settings, version). The newest version saved
+    from the dashboard, or the defaults (version None) when there are no
+    Supabase credentials, nothing is saved, it can't be fetched, or the saved
+    version is invalid. Problems are logged; they never stop the run.
+    """
+    client = supabase_client(secrets)
+    if client:
+        try:
+            rows = client.select("scraper_settings_versions",
+                                 {"select": "version,settings", "order": "version.desc", "limit": "1"})
+        except Exception as e:
+            log.warning("Couldn't load the scraper settings (%s); using the defaults", e)
+            rows = []
+        if rows:
+            version = rows[0]["version"]
+            try:
+                settings = settings_module.validate(rows[0]["settings"])
+                log.info("Using scraper settings version %s", version)
+                return settings, version
+            except settings_module.SettingsError as e:
+                log.error("Scraper settings version %s is invalid (%s); using the defaults", version, e)
+    else:
+        log.info("No Supabase credentials; using the default scraper settings")
+    return settings_module.validate({}), None
+
 
 # ===== Sinks =================================================================
 
@@ -266,10 +299,20 @@ def run_log(cfg, secrets, source, dry_run=False):
     def finish(error=None):
         if run_id is None:
             return
+        values = {**stats, "error": error, "finished_at": datetime.now(timezone.utc).isoformat()}
         try:
-            client.update("scrape_runs", {"id": run_id}, {
-                **stats, "error": error, "finished_at": datetime.now(timezone.utc).isoformat()})
+            client.update("scrape_runs", {"id": run_id}, values)
         except Exception as e:
+            # A database without the settings migration has no settings_version
+            # column; keep the counts rather than losing the whole update.
+            if "settings_version" in values:
+                values.pop("settings_version")
+                try:
+                    client.update("scrape_runs", {"id": run_id}, values)
+                    log.warning("scrape_runs has no settings_version column yet (%s); push the migrations", e)
+                    return
+                except Exception as retry_error:
+                    e = retry_error
             log.warning("Couldn't update the run in scrape_runs: %s", e)
 
     try:

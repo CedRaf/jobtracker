@@ -1,5 +1,6 @@
 import { demoDescription, demoFilteredJobs, demoJobs, demoLatestRuns, demoScrapeRuns, demoStatusHistory } from './demoData'
-import type { DataApi, JobKey } from './types'
+import { DEFAULT_SETTINGS } from './defaultSettings'
+import type { DataApi, JobKey, SettingsVersion } from './types'
 
 const DEMO_USER = { id: 'demo-user', email: 'demo@example.com' }
 const wait = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -9,6 +10,12 @@ export function createDemoApi(): DataApi {
   const jobs = demoJobs()
   const filtered = demoFilteredJobs()
   const history = demoStatusHistory(jobs)
+  const settingsVersions: SettingsVersion[] = [{
+    version: 1,
+    settings: structuredClone(DEFAULT_SETTINGS),
+    note: 'Defaults from scraper/default_settings.json',
+    created_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+  }]
   const find = (key: JobKey) => {
     const job = jobs.find((j) => j.source === key.source && j.external_id === key.external_id)
     if (!job) throw new Error('Job not found')
@@ -57,6 +64,21 @@ export function createDemoApi(): DataApi {
     async listStatusHistory() {
       await wait()
       return history.map((h) => ({ ...h }))
+    },
+    async listSettingsVersions() {
+      await wait()
+      return structuredClone([...settingsVersions].reverse())
+    },
+    async saveSettings(settings, note) {
+      await wait()
+      const saved: SettingsVersion = {
+        version: settingsVersions.length + 1,
+        settings: structuredClone(settings),
+        note,
+        created_at: new Date().toISOString(),
+      }
+      settingsVersions.push(saved)
+      return structuredClone(saved)
     },
     auth: {
       getUser: async () => DEMO_USER,

@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { Button, Flex, Grid, Layout, Menu, Tag, theme, Tooltip, Typography } from 'antd'
 import {
-  BarChartOutlined, FilterOutlined, LogoutOutlined, MoonOutlined, ProjectOutlined, SunOutlined,
+  BarChartOutlined, ControlOutlined, FilterOutlined, LogoutOutlined, MoonOutlined, ProjectOutlined, SunOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons'
 import { useApi } from '../data/hooks'
@@ -22,6 +22,7 @@ const nav = (compact: boolean) => [
     icon: compact ? undefined : <FilterOutlined />,
     label: <Link to="/filtered">{compact ? 'Filtered' : 'Filtered out'}</Link>,
   },
+  { key: '/rules', icon: compact ? undefined : <ControlOutlined />, label: <Link to="/rules">Rules</Link> },
 ]
 
 /** The nav item for a path: "/board/x" -> "/board". */

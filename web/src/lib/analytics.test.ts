@@ -92,7 +92,8 @@ describe('scraper health', () => {
   const now = Date.parse('2026-10-22T12:00:00Z')
   const run = (overrides: Partial<ScrapeRun>): ScrapeRun => ({
     source: 'jobstreet', started_at: '2026-10-22T03:00:00Z', finished_at: '2026-10-22T03:03:00Z',
-    found: 100, evaluated: 20, kept: 3, filtered: 17, expired: 0, error: null, github_run_id: null, ...overrides,
+    found: 100, evaluated: 20, kept: 3, filtered: 17, expired: 0, error: null, github_run_id: null,
+    settings_version: 1, ...overrides,
   })
 
   it('tells finished, failed, running and interrupted runs apart', () => {

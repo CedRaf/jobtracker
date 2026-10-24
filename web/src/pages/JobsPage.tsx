@@ -1,5 +1,5 @@
 import { useContext, useMemo, useState, type ReactNode } from 'react'
-import { Alert, Button, Empty, Flex, Grid, Table, Tabs, theme, Tooltip, Typography } from 'antd'
+import { Alert, Button, Empty, Flex, Grid, Switch, Table, Tabs, theme, Tooltip, Typography } from 'antd'
 import type { TableColumnsType, TableProps } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import type { Job, JobSource, ScrapeRun } from '../data/types'
@@ -10,15 +10,17 @@ import { JobDrawer } from '../components/JobDrawer'
 import { JobFiltersBar } from '../components/JobFiltersBar'
 import { StatCards } from '../components/StatCards'
 import { StatusCell } from '../components/StatusControl'
-import { FlagTags, SkillTags, ToneTag } from '../components/Tags'
+import { EntryLevelTag, FlagTags, SkillTags, ToneTag } from '../components/Tags'
 import { applyFilters, DEFAULT_FILTERS, isNewSince, type JobFilters } from '../lib/filters'
 import { flagTone } from '../lib/flags'
 import { dateTime, dayTime, errorText, fromNow, sourceLabel } from '../lib/format'
+import { entryRank, useEntryLevel, type EntryLevel } from '../lib/entryLevel'
 import { LastVisitContext } from '../lib/lastVisit'
 import { SHOW_MATCH_SCORE } from '../lib/settings'
 
 const SOURCES: JobSource[] = ['jobstreet', 'linkedin']
 const TAB_KEY = 'jobtracker.sourceTab'
+const ENTRY_FIRST_KEY = 'jobtracker.entryLevelFirst'
 
 type SortOrder = 'ascend' | 'descend' | null
 
@@ -32,6 +34,15 @@ function initialSource(): JobSource {
   return 'jobstreet'
 }
 
+/** Entry-level jobs sort first unless turned off (remembered per browser). */
+function initialEntryFirst() {
+  try {
+    return localStorage.getItem(ENTRY_FIRST_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+
 const sameStatuses = (a: string[], b: string[]) => a.length === b.length && a.every((s) => b.includes(s))
 
 export function JobsPage() {
@@ -42,6 +53,8 @@ export function JobsPage() {
   const [source, setSource] = useState<JobSource>(initialSource)
   const [filters, setFilters] = useState<JobFilters>(DEFAULT_FILTERS)
   const [sortOrder, setSortOrder] = useState<SortOrder>('descend')
+  const [entryFirst, setEntryFirst] = useState(initialEntryFirst)
+  const entryLevelOf = useEntryLevel()
   const [openKey, setOpenKey] = useState<string | null>(null)
   // Jobs whose status changed in the table stay listed until the filters or
   // tab change, so a row doesn't vanish the moment you mark it Skip.
@@ -50,11 +63,14 @@ export function JobsPage() {
   const all = useMemo(() => jobs.data ?? [], [jobs.data])
   const inTab = useMemo(() => all.filter((j) => j.source === source), [all, source])
   const shown = useMemo(() => {
-    const matching = new Set(applyFilters(inTab, filters, lastVisit).map(jobKeyString))
+    const isEntry = (j: Job) => entryLevelOf(j) !== null
+    const matching = new Set(applyFilters(inTab, filters, lastVisit, isEntry).map(jobKeyString))
     const listed = inTab.filter((j) => matching.has(jobKeyString(j)) || kept.has(jobKeyString(j)))
     const direction = sortOrder === 'ascend' ? 1 : -1
-    return sortOrder ? listed.sort((a, b) => direction * (Date.parse(a.first_seen) - Date.parse(b.first_seen))) : listed
-  }, [inTab, filters, lastVisit, kept, sortOrder])
+    const byDate = (a: Job, b: Job) => (sortOrder ? direction * (Date.parse(a.first_seen) - Date.parse(b.first_seen)) : 0)
+    const byEntry = (a: Job, b: Job) => entryRank(entryLevelOf(a)) - entryRank(entryLevelOf(b))
+    return listed.sort((a, b) => (entryFirst ? byEntry(a, b) : 0) || byDate(a, b))
+  }, [inTab, filters, lastVisit, kept, sortOrder, entryFirst, entryLevelOf])
   // Look the open job up by key so the drawer shows saved changes.
   const openJob = all.find((j) => jobKeyString(j) === openKey) ?? null
   const openIndex = shown.findIndex((j) => jobKeyString(j) === openKey)
@@ -66,6 +82,14 @@ export function JobsPage() {
   const changeFilters = (next: JobFilters) => {
     setFilters(next)
     setKept(new Set())
+  }
+  const changeEntryFirst = (next: boolean) => {
+    setEntryFirst(next)
+    try {
+      localStorage.setItem(ENTRY_FIRST_KEY, String(next))
+    } catch {
+      // not remembered, but still applies
+    }
   }
   const changeSource = (next: JobSource) => {
     setSource(next)
@@ -151,12 +175,22 @@ export function JobsPage() {
 
       <Flex vertical gap={8}>
         <JobFiltersBar jobs={inTab} filters={filters} onChange={changeFilters} />
-        <Typography.Text type="secondary" className="tabular" aria-live="polite">
-          {shown.length} of {inTab.length} {label} jobs
-        </Typography.Text>
+        <Flex justify="space-between" align="center" wrap gap={8}>
+          <Typography.Text type="secondary" className="tabular" aria-live="polite">
+            {shown.length} of {inTab.length} {label} jobs
+          </Typography.Text>
+          <Flex gap={8} align="center">
+            <Switch size="small" id="entry-first" checked={entryFirst} onChange={changeEntryFirst} />
+            <label htmlFor="entry-first">
+              <Tooltip title="Junior, associate, trainee, L1… titles first, then fresh-grad-friendly descriptions. Edit the words under Rules.">
+                <span>Entry-level first</span>
+              </Tooltip>
+            </label>
+          </Flex>
+        </Flex>
       </Flex>
 
-      <JobTable jobs={shown} loading={jobs.isPending} lastVisit={lastVisit} empty={empty}
+      <JobTable jobs={shown} loading={jobs.isPending} lastVisit={lastVisit} empty={empty} entryLevelOf={entryLevelOf}
         sortOrder={sortOrder} onSortChange={setSortOrder}
         onStatusChanged={(job) => setKept((k) => new Set(k).add(jobKeyString(job)))}
         onOpen={(job) => setOpenKey(jobKeyString(job))} />
@@ -203,12 +237,13 @@ function NewDot() {
 }
 
 /** Title and company line, shared by the desktop and phone layouts. */
-function JobHeading({ job, isNew }: { job: Job; isNew: boolean }) {
+function JobHeading({ job, isNew, entry }: { job: Job; isNew: boolean; entry: EntryLevel }) {
   return (
     <Flex vertical gap={2} style={{ minWidth: 0 }}>
       <Flex gap={6} align="flex-start">
         {isNew && <NewDot />}
         <Typography.Text strong className="clamp-2">{job.title}</Typography.Text>
+        <EntryLevelTag level={entry} />
       </Flex>
       <Typography.Text type="secondary" className="clamp-2">
         {job.company ?? 'Unknown company'} · {job.location ?? 'No location'}
@@ -226,13 +261,16 @@ interface JobTableProps {
   loading: boolean
   lastVisit: string | null
   empty: ReactNode
+  entryLevelOf: (job: Job) => EntryLevel
   sortOrder: SortOrder
   onSortChange: (order: SortOrder) => void
   onStatusChanged: (job: Job) => void
   onOpen: (job: Job) => void
 }
 
-function JobTable({ jobs, loading, lastVisit, empty, sortOrder, onSortChange, onStatusChanged, onOpen }: JobTableProps) {
+function JobTable({
+  jobs, loading, lastVisit, empty, entryLevelOf, sortOrder, onSortChange, onStatusChanged, onOpen,
+}: JobTableProps) {
   const screens = Grid.useBreakpoint()
   const status = (job: Job, size: 'small' | 'middle', width: number) => (
     <StatusCell job={job} size={size} width={width} onChanged={onStatusChanged} />
@@ -254,7 +292,7 @@ function JobTable({ jobs, loading, lastVisit, empty, sortOrder, onSortChange, on
       key: 'job',
       render: (_, job) => (
         <Flex vertical gap={8}>
-          <JobHeading job={job} isNew={isNewSince(job, lastVisit)} />
+          <JobHeading job={job} isNew={isNewSince(job, lastVisit)} entry={entryLevelOf(job)} />
           {job.flags.length > 0 && <FlagTags flags={topFlags(job.flags, 2)} />}
           <Flex justify="space-between" align="center" gap={8}>
             {status(job, 'middle', 150)}
@@ -272,7 +310,7 @@ function JobTable({ jobs, loading, lastVisit, empty, sortOrder, onSortChange, on
       render: (_, job) => (
         <Flex gap={12} align="center" style={{ maxWidth: 460 }}>
           <CompanyAvatar company={job.company} />
-          <JobHeading job={job} isNew={isNewSince(job, lastVisit)} />
+          <JobHeading job={job} isNew={isNewSince(job, lastVisit)} entry={entryLevelOf(job)} />
         </Flex>
       ),
     },

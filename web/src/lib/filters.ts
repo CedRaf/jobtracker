@@ -15,6 +15,8 @@ export interface JobFilters {
   /** Job must have all of these. */
   skills: string[]
   newOnly: boolean
+  /** Only jobs with the Entry-level marker. */
+  entryLevelOnly: boolean
 }
 
 export const DEFAULT_FILTERS: JobFilters = {
@@ -25,6 +27,7 @@ export const DEFAULT_FILTERS: JobFilters = {
   flags: [],
   skills: [],
   newOnly: false,
+  entryLevelOnly: false,
 }
 
 /** Arrangement value for jobs that don't list one. */
@@ -42,7 +45,12 @@ function matchesText(job: Job, text: string): boolean {
     .some((value) => value?.toLowerCase().includes(needle))
 }
 
-export function applyFilters(jobs: Job[], f: JobFilters, lastVisit: string | null): Job[] {
+export function applyFilters(
+  jobs: Job[],
+  f: JobFilters,
+  lastVisit: string | null,
+  isEntryLevel: (job: Job) => boolean = () => false,
+): Job[] {
   return jobs.filter((job) => {
     const arrangements = job.work_arrangements.length ? job.work_arrangements : [NOT_LISTED]
     const categories = f.flags.length ? flagCategories(job.flags) : null
@@ -53,7 +61,8 @@ export function applyFilters(jobs: Job[], f: JobFilters, lastVisit: string | nul
       job.match_score >= f.minScore &&
       f.flags.every((key) => categories!.has(key)) &&
       f.skills.every((skill) => job.matched_skills.includes(skill)) &&
-      (!f.newOnly || isNewSince(job, lastVisit))
+      (!f.newOnly || isNewSince(job, lastVisit)) &&
+      (!f.entryLevelOnly || isEntryLevel(job))
     )
   })
 }

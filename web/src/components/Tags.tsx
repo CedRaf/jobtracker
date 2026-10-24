@@ -1,6 +1,7 @@
-import { Flex, Tag, theme } from 'antd'
+import { Flex, Tag, theme, Tooltip } from 'antd'
 import type { CSSProperties, ReactNode } from 'react'
 import type { JobStatus } from '../data/types'
+import { entryReason, type EntryLevel } from '../lib/entryLevel'
 import { FLAG_COLORS, flagLabel, flagTone } from '../lib/flags'
 import { STATUS_META } from '../lib/status'
 
@@ -16,6 +17,16 @@ export function ToneTag({ color, children, style }: { color?: string; children: 
     ? { color: token.colorTextSecondary, background: token.colorFillQuaternary, borderColor: token.colorBorderSecondary }
     : { color: shade(8), background: shade(1), borderColor: shade(3) }
   return <Tag style={{ marginInlineEnd: 0, ...tone, ...style }}>{children}</Tag>
+}
+
+/** Marks a job that takes juniors or fresh grads; hover for why. */
+export function EntryLevelTag({ level }: { level: EntryLevel }) {
+  if (!level) return null
+  return (
+    <Tooltip title={entryReason(level)}>
+      <span><ToneTag color="green" style={{ whiteSpace: 'nowrap' }}>Entry-level</ToneTag></span>
+    </Tooltip>
+  )
 }
 
 export const StatusTag = ({ status }: { status: JobStatus }) => (

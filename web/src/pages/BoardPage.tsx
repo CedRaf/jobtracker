@@ -13,6 +13,8 @@ import { StatusDot } from '../components/StatusControl'
 import { useChangeStatus } from '../components/useChangeStatus'
 import { errorText, fromNow, sourceLabel } from '../lib/format'
 import { STATUS_META } from '../lib/status'
+import { useEntryLevel, type EntryLevel } from '../lib/entryLevel'
+import { EntryLevelTag } from '../components/Tags'
 
 const OPEN_COLUMNS: JobStatus[] = ['new', 'applied', 'emailed', 'interview', 'offer']
 const CLOSED_COLUMNS: JobStatus[] = ['rejected', 'skip']
@@ -38,6 +40,7 @@ export function BoardPage() {
   const [openKey, setOpenKey] = useState<string | null>(null)
   const [skipping, setSkipping] = useState<Job | null>(null)
   const [skipReason, setSkipReason] = useState('')
+  const entryLevelOf = useEntryLevel()
 
   const all = useMemo(() => jobs.data ?? [], [jobs.data])
   const columns = showClosed ? [...OPEN_COLUMNS, ...CLOSED_COLUMNS] : OPEN_COLUMNS
@@ -114,12 +117,12 @@ export function BoardPage() {
           onDragCancel={() => setDragging(null)}>
           <div className="board" role="list" aria-label="Status columns">
             {columns.map((status) => (
-              <Column key={status} status={status} jobs={byStatus.get(status) ?? []}
+              <Column key={status} status={status} jobs={byStatus.get(status) ?? []} entryLevelOf={entryLevelOf}
                 onOpen={(job) => setOpenKey(jobKeyString(job))} />
             ))}
           </div>
           <DragOverlay dropAnimation={null}>
-            {dragging && <Card job={dragging} overlay />}
+            {dragging && <Card job={dragging} entry={entryLevelOf(dragging)} overlay />}
           </DragOverlay>
         </DndContext>
       )}
@@ -146,7 +149,12 @@ export function BoardPage() {
   )
 }
 
-function Column({ status, jobs, onOpen }: { status: JobStatus; jobs: Job[]; onOpen: (job: Job) => void }) {
+function Column({ status, jobs, onOpen, entryLevelOf }: {
+  status: JobStatus
+  jobs: Job[]
+  onOpen: (job: Job) => void
+  entryLevelOf: (job: Job) => EntryLevel
+}) {
   const { token } = theme.useToken()
   const { setNodeRef, isOver } = useDroppable({ id: status })
   return (
@@ -172,14 +180,14 @@ function Column({ status, jobs, onOpen }: { status: JobStatus; jobs: Job[]; onOp
             Drop jobs here
           </Typography.Text>
         ) : (
-          jobs.map((job) => <DraggableCard key={jobKeyString(job)} job={job} onOpen={onOpen} />)
+          jobs.map((job) => <DraggableCard key={jobKeyString(job)} job={job} entry={entryLevelOf(job)} onOpen={onOpen} />)
         )}
       </div>
     </section>
   )
 }
 
-function DraggableCard({ job, onOpen }: { job: Job; onOpen: (job: Job) => void }) {
+function DraggableCard({ job, entry, onOpen }: { job: Job; entry: EntryLevel; onOpen: (job: Job) => void }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: jobKeyString(job) })
   return (
     <div
@@ -195,12 +203,12 @@ function DraggableCard({ job, onOpen }: { job: Job; onOpen: (job: Job) => void }
       aria-label={`${job.title}, ${job.company ?? 'unknown company'}. Enter to open, Space to move.`}
       style={{ opacity: isDragging ? 0.4 : 1, touchAction: 'manipulation' }}
     >
-      <Card job={job} />
+      <Card job={job} entry={entry} />
     </div>
   )
 }
 
-function Card({ job, overlay }: { job: Job; overlay?: boolean }) {
+function Card({ job, entry, overlay }: { job: Job; entry: EntryLevel; overlay?: boolean }) {
   const { token } = theme.useToken()
   return (
     <div
@@ -223,6 +231,7 @@ function Card({ job, overlay }: { job: Job; overlay?: boolean }) {
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {sourceLabel(job.source)} · {fromNow(job.status_changed_at ?? job.first_seen)}
           </Typography.Text>
+          {entry && <div style={{ marginTop: 2 }}><EntryLevelTag level={entry} /></div>}
         </Flex>
       </Flex>
     </div>

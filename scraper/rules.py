@@ -1,61 +1,30 @@
 """
 Filtering, flagging and resume skill-matching rules.
 
-Decisions:
-- DROP: seniority titles, internships, network/IT/non-dev and other off-target
-  role types, foreign-language requirements, night shift / graveyard / NSD,
-  US/foreign hours, 5+ years experience, hybrid/on-site outside Cebu, and
-  (in scraper.py) a skill-match score below config "min_match_score".
-  LinkedIn jobs get their work arrangement from guess_work_arrangements().
+What the rules look for comes from the scraper settings (settings.py:
+editable in the dashboard, defaults in default_settings.json):
+- DROP by title: each enabled title rule (seniority, internship, ...).
+- DROP by description: night shift, US/foreign hours, language requirements
+  (each can be switched off), and N+ years of experience.
+- DROP hybrid/on-site outside Cebu (location_drop_reason), and (in
+  scraper.py) a skill-match score below "min_match_score".
 - FLAG: 3-4 years experience, off-stack roles, training bonds, blank work
-  arrangement, previous employers (config "previous_employers"), and
-  positive signals.
+  arrangement, previous employers, and positive signals.
+LinkedIn jobs get their work arrangement from guess_work_arrangements().
 
-Patterns are plain regexes so they are easy to tweak.
+The settings hold plain words and phrases; phrase_pattern() turns them into
+regexes. How matching works (negation, parsing "3+ years", the patterns for
+night shift, foreign hours, languages and positive signals) stays here.
 """
 
 import html
 import re
 
+import settings as settings_module
+
 I = re.IGNORECASE
 
-# ---- Title-only drops (checked before fetching job details) ----------------
-
-SENIORITY_TITLE = re.compile(
-    r"\b(senior|sr\.?|snr|lead|principal|staff (?:software )?engineer|manager|"
-    r"architect|head of|mid[\s-]?level|director|supervisor|vp)\b", I)
-
-# (reason label, title pattern). Tuned from the rows marked "Skip" in the sheet.
-TITLE_DROPS = [(label, re.compile(p, I)) for label, p in [
-    ("internship", r"\b(intern|interns|internship|ojt|on[\s-]the[\s-]job training|practicum)\b"),
-    ("non-dev / IT role",
-     r"\b(it support|technical support|tech support|help ?desk|desktop support|"
-     r"service desk|network (?:engineer|administrator|admin|technician|specialist)|"
-     r"system(?:s)? administrator|sysadmin|it staff|it specialist|it technician|"
-     r"it assistant|computer technician|noc|field engineer|"
-     r"sales|instructor|teacher|tutor|data encoder|data entry|customer service|"
-     r"virtual assistant|call center|csr)\b"),
-    ("support role",
-     r"\b(application support|support engineer|support analyst|l[123]\s*/\s*l[123]|l[23] support)\b"),
-    ("analyst role", r"\b(systems? analy(?:sis|st)|business analyst|qa analyst)\b"),
-    ("data/platform role",
-     r"\b(data engineer|integration engineer|platform engineer|databricks|data analyst|"
-     r"devops|site reliability|sre|cloud engineer|infrastructure engineer)\b"),
-    ("automation/low-code role",
-     r"\b(automation (?:engineer|specialist)|rpa|power automate|power apps|servicenow|"
-     r"salesforce admin(?:istrator)?|erpnext|frappe|odoo)\b"),
-    ("design/content role",
-     r"\b(designer|ux|ui/ux|ux/ui|graphic design|seo|wordpress|web editor|"
-     r"content (?:writer|creator|editor|moderator|specialist|manager))\b"),
-    ("non-dev AI role",
-     r"\b(annotator|annotation|ai trainer|data label(?:l)?(?:ing|er)|ai assistant|"
-     r"ai (?:process|optimi[sz]ation|operations)|prompt (?:writer|rater)|rater)\b"),
-    ("language requirement",
-     r"\b(mandarin|chinese|japanese|korean|cantonese|german|french|spanish|vietnamese|thai|bilingual)\b"),
-    ("spam/not a job", r"\b(earn from|unused code|founders?|side income|commission only)\b"),
-]]
-
-# ---- Description checks ----------------------------------------------------
+# ---- Description checks (fixed patterns; on/off comes from the settings) ----
 
 NIGHT_SHIFT = re.compile(
     r"\b(night[\s-]?shifts?|graveyard(?: shift)?|nsd|night shift differential|"
@@ -82,6 +51,7 @@ TRAINING_BOND = re.compile(
     r"\b(training bond|bond(?:ed)? (?:period|agreement|contract)|service agreement|"
     r"training agreement|employment bond|return service)\b", I)
 
+# Kept in code: the dashboard's flag categories (web/src/lib/flags.ts) list these.
 POSITIVE = [
     ("fresh grads OK", re.compile(r"\bfresh(?:\s|-)?grad(?:uate)?s?\b", I)),
     ("no exp required", re.compile(r"\b(no (?:work )?experience (?:is )?(?:required|needed|necessary)|"
@@ -92,77 +62,84 @@ POSITIVE = [
     ("honors preferred", re.compile(r"\b(latin honors?|cum laude|with honors)\b", I)),
 ]
 
-# Set from config "previous_employers" by configure(); None = no flag.
-PREVIOUS_EMPLOYER = None
-
-
-def configure(cfg):
-    """Applies the settings from config.json that the rules depend on."""
-    global PREVIOUS_EMPLOYER
-    names = cfg.get("previous_employers") or []
-    PREVIOUS_EMPLOYER = (re.compile(r"\b(" + "|".join(map(re.escape, names)) + r")\b", I)
-                         if names else None)
-
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 FORM_LINK = re.compile(
     r"https?://(?:docs\.google\.com/forms|forms\.gle|forms\.office\.com|"
     r"[\w.-]*typeform\.com|[\w.-]*jotform\.com|[\w.-]*tally\.so)[^\s\"'<>)]*", I)
 
-# ---- Resume skills (weights: core 3, secondary 2, adjacent 1) -------------
 
-SKILLS = [
-    # core
-    ("TypeScript", 3, r"\btypescript\b"),
-    ("JavaScript", 3, r"\bjavascript\b|\bes6\b"),
-    ("React", 3, r"\breact(?:\.?js)?\b(?!\s*native)"),
-    ("C#", 3, r"\bc#|\bc sharp\b"),
-    (".NET", 3, r"(?<![\w])(?:asp)?\.net\b|\bdotnet\b"),
-    ("Node.js", 3, r"\bnode(?:\.?js)?\b"),
-    ("Express", 3, r"\bexpress\.?js\b|\bnode(?:\.?js)?\s*(?:/|,|and|&)\s*express\b"),
-    ("PostgreSQL", 3, r"\bpostgre(?:s|sql)?\b"),
-    ("MySQL", 3, r"\bmysql\b"),
-    ("SQL", 3, r"\bsql\b"),
-    ("Prisma", 3, r"\bprisma\b"),
-    ("Drizzle", 3, r"\bdrizzle\b"),
-    # secondary
-    ("Python", 2, r"\bpython\b"),
-    ("React Native", 2, r"\breact[\s-]native\b"),
-    ("AI/LLM", 2, r"\b(?:llms?|large language models?|generative ai|gen ?ai|rag|"
-                  r"retrieval[\s-]augmented|machine learning|ai)\b"),
-    ("LangChain", 2, r"\blangchain\b"),
-    ("Neo4j", 2, r"\bneo4j\b"),
-    ("Vector DB", 2, r"\b(?:milvus|pinecone|weaviate|qdrant|vector (?:db|database))\b"),
-    ("pandas", 2, r"\bpandas\b"),
-    ("scikit-learn", 2, r"\bscikit[\s-]?learn\b|\bsklearn\b"),
-    ("REST API", 2, r"\brest(?:ful)?\s*apis?\b"),
-    ("WebSockets", 2, r"\bweb\s?sockets?\b|\bsocket\.io\b"),
-    ("Git", 2, r"\bgit(?:hub|lab)?\b"),
-    # adjacent
-    ("Java", 1, r"\bjava\b"),
-    ("Azure", 1, r"\bazure\b"),
-    ("Postman", 1, r"\bpostman\b"),
-    ("Vercel", 1, r"\bvercel\b"),
-]
-SKILLS = [(name, weight, re.compile(p, I)) for name, weight, p in SKILLS]
+# ---- Settings -> patterns ----------------------------------------------------
 
-# Stacks not on the resume. OFF_STACK ones trigger the "off-stack" flag when a
-# job mentions them and none of your core skills.
-MISSING = [
-    ("PHP", r"\bphp\b"), ("Laravel", r"\blaravel\b"), ("Spring", r"\bspring(?:\s?boot)?\b"),
-    ("Angular", r"\bangular(?:js)?\b"), ("Vue", r"\bvue(?:\.?js)?\b"), ("Next.js", r"\bnext\.?js\b"),
-    ("Ruby/Rails", r"\bruby\b|\brails\b"), ("Go", r"\bgolang\b"), ("Kotlin", r"\bkotlin\b"),
-    ("Swift", r"\bswift\b"), ("Flutter", r"\bflutter\b|\bdart\b"), ("Django", r"\bdjango\b"),
-    ("Flask", r"\bflask\b"), ("FastAPI", r"\bfastapi\b"), ("MongoDB", r"\bmongo(?:db)?\b"),
-    ("AWS", r"\baws\b|\bamazon web services\b"), ("Docker", r"\bdocker\b"),
-    ("Kubernetes", r"\bkubernetes\b|\bk8s\b"), ("Salesforce", r"\bsalesforce\b|\bapex\b"),
-    ("SAP/ABAP", r"\bsap\b|\babap\b"), ("COBOL", r"\bcobol\b|\bmainframe\b"),
-    ("WordPress", r"\bwordpress\b"), ("Shopify", r"\bshopify\b"), ("Magento", r"\bmagento\b"),
-    ("Power Platform", r"\bpower ?apps\b|\bpower automate\b"), ("RPA", r"\buipath\b|\brpa\b"),
-    ("ServiceNow", r"\bservicenow\b"), ("ERPNext/Odoo", r"\berpnext\b|\bfrappe\b|\bodoo\b"),
-]
-MISSING = [(name, re.compile(p, I)) for name, p in MISSING]
-OFF_STACK = {"PHP", "Laravel", "Spring", "Java", "Salesforce", "SAP/ABAP", "COBOL", "WordPress",
-             "ServiceNow", "ERPNext/Odoo"}
+def _phrase(phrase):
+    """One phrase as a regex: spaces and hyphens match any mix of them (or none), '/' allows spaces."""
+    out = []
+    for part in re.split(r"(\s+|-|/)", phrase.strip().lower()):
+        if not part:
+            continue
+        if part.isspace() or part == "-":
+            out.append(r"[\s-]*")
+        elif part == "/":
+            out.append(r"\s*/\s*")
+        else:
+            out.append(re.escape(part))
+    return "".join(out)
+
+
+def phrase_pattern(phrases):
+    """
+    A case-insensitive pattern matching any of the phrases as whole words.
+    Uses lookarounds rather than \\b so phrases like "c#" and ".net" work.
+    Longer phrases are tried first, so the reported match is the most specific.
+    """
+    parts = sorted({_phrase(p) for p in phrases}, key=len, reverse=True)
+    return re.compile(r"(?<!\w)(?:" + "|".join(parts) + r")(?!\w)", I) if parts else None
+
+
+class Rules:
+    """The settings compiled into patterns."""
+
+    def __init__(self, settings):
+        self.settings = settings
+        self.title_rules = [
+            (rule["label"], phrase_pattern(rule["words"]))
+            for rule in settings["title_rules"] if rule["enabled"] and rule["words"]
+        ]
+        self.skills = [
+            (s["name"], s["weight"], phrase_pattern(s["aliases"]), phrase_pattern(s["exclude"]),
+             s["off_stack"])
+            for s in settings["skills"]
+        ]
+        self.other_stacks = [
+            (s["name"], phrase_pattern(s["aliases"]), s["off_stack"]) for s in settings["other_stacks"]
+        ]
+        self.previous_employer = phrase_pattern(settings["previous_employers"])
+        self.checks = settings["checks"]
+        self.experience = settings["experience"]
+
+
+_active = None
+
+
+def configure(settings=None):
+    """
+    Applies scraper settings (a full or partial settings dict; missing parts
+    use the defaults). Raises settings.SettingsError if they're malformed.
+    """
+    global _active
+    _active = Rules(settings_module.validate(settings or {}))
+    return _active
+
+
+def active():
+    return _active or configure()
+
+
+def _mentions(pattern, exclude, text):
+    """True if pattern matches somewhere that isn't part of an excluded phrase."""
+    if pattern is None:
+        return False
+    blocked = [m.span() for m in exclude.finditer(text)] if exclude else []
+    return any(not any(s <= m.start() and m.end() <= e for s, e in blocked) for m in pattern.finditer(text))
 
 
 # ---- helpers ---------------------------------------------------------------
@@ -221,10 +198,7 @@ def guess_work_arrangements(text):
 def title_drop_reason(job):
     """Checks that only need the title. Returns a reason string or None."""
     title = job["title"] or ""
-    m = SENIORITY_TITLE.search(title)
-    if m:
-        return f"seniority title ({m.group(0)})"
-    for label, rx in TITLE_DROPS:
+    for label, rx in active().title_rules:
         m = rx.search(title)
         if m:
             return f"{label} ({m.group(0)})"
@@ -244,39 +218,45 @@ def evaluate(job, description):
     Full evaluation after details are fetched.
     Returns (drop_reason or None, extra_fields dict).
     """
+    rules = active()
     text = f"{job['title']}\n{description}"
     flags = []
 
-    if _unnegated(NIGHT_SHIFT, text):
+    if rules.checks["night_shift"] == "drop" and _unnegated(NIGHT_SHIFT, text):
         m = NIGHT_SHIFT.search(text)
         return f"night shift ({m.group(0)})", {}
 
     years = required_years(description)
-    if years is not None and years >= 5:
+    drop_at, flag_at = rules.experience["drop_years"], rules.experience["flag_years"]
+    if years is not None and drop_at is not None and years >= drop_at:
         return f"{years}+ years experience", {}
-    if years is not None and years >= 3:
+    if years is not None and flag_at is not None and years >= flag_at:
         flags.append(f"!{years}+ yrs exp")
 
-    if _unnegated(US_HOURS, text):
+    if rules.checks["foreign_hours"] == "drop" and _unnegated(US_HOURS, text):
         return f"US/foreign hours ({US_HOURS.search(text).group(0)})", {}
-    m = LANGUAGE_REQUIRED.search(text)
-    if m:
-        return f"language requirement ({m.group(0)})", {}
-    if TRAINING_BOND.search(description):
+    if rules.checks["language_requirement"] == "drop":
+        m = LANGUAGE_REQUIRED.search(text)
+        if m:
+            return f"language requirement ({m.group(0)})", {}
+    if rules.checks["training_bond"] == "flag" and TRAINING_BOND.search(description):
         flags.append("!training bond")
     if not job["work_arrangements"]:
         flags.append("!no work arrangement listed")
-    if PREVIOUS_EMPLOYER and PREVIOUS_EMPLOYER.search(job["company"] or ""):
+    if rules.previous_employer and rules.previous_employer.search(job["company"] or ""):
         flags.append("!previous employer")
 
-    matched, score, core_hits = [], 0, 0
-    for name, weight, rx in SKILLS:
-        if rx.search(text):
+    matched, score, core_hits, off_stack_skills = [], 0, 0, []
+    for name, weight, rx, exclude, is_off_stack in rules.skills:
+        if _mentions(rx, exclude, text):
             matched.append(name)
             score += weight
             core_hits += weight == 3
-    missing = [name for name, rx in MISSING if rx.search(text)]
-    off_stack = [s for s in missing + (["Java"] if "Java" in matched else []) if s in OFF_STACK]
+            if is_off_stack:
+                off_stack_skills.append(name)
+    missing = [name for name, rx, _ in rules.other_stacks if rx.search(text)]
+    off_stack_names = {name for name, _, is_off_stack in rules.other_stacks if is_off_stack}
+    off_stack = [name for name in missing if name in off_stack_names] + off_stack_skills
     if off_stack and not core_hits:
         flags.append(f"!off-stack ({', '.join(off_stack)})")
 

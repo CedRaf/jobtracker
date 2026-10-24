@@ -1,27 +1,10 @@
 {
-  "keywords": [
-    "junior developer",
-    "junior software engineer",
-    "junior web developer",
-    "junior full stack developer",
-    "junior react developer",
-    "junior .net developer",
-    "junior python developer",
-    "associate software engineer",
-    "software engineer trainee",
-    "entry level developer",
-    "ai developer",
-    "ai engineer"
-  ],
   "cebu_location": "Cebu City Cebu",
-  "cebu_distance_kms": 50,
-  "search_remote_outside_cebu": true,
   "sort": "listedAt",
-  "listed_within_days": 3,
-  "min_match_score": 3,
-  "max_pages_per_search": 2,
   "delay_seconds": 2,
   "seen_ids_retention_days": 120,
-  "previous_employers": [],
-  "outputs": ["sheet", "supabase"]
+  "outputs": [
+    "sheet",
+    "supabase"
+  ]
 }

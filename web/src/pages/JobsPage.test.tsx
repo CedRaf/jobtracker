@@ -28,6 +28,23 @@ it('opens the email template editor with the default template', async () => {
   expect(await screen.findByDisplayValue('Inquiry: {title} Position')).toBeInTheDocument()
 })
 
+it('marks entry-level jobs, lists them first, and can show only them', async () => {
+  renderPage()
+  await screen.findByText('Junior Full Stack Developer')
+  const titles = () => screen.getAllByRole('row').slice(1).map((r) => r.querySelector('strong')?.textContent)
+  // "Associate Software Engineer" (5 hours old) beats newer non-junior titles.
+  const order = titles()
+  expect(order.indexOf('Associate Software Engineer')).toBeLessThan(order.indexOf('Full Stack Engineer'))
+  expect(screen.getAllByText('Entry-level').length).toBeGreaterThan(0)
+
+  await userEvent.click(screen.getByLabelText('Entry-level first'))
+  expect(titles()[0]).toBe('Junior Full Stack Developer') // plain newest first
+
+  await userEvent.click(screen.getByLabelText('Entry-level only'))
+  expect(screen.queryByText('Full Stack Engineer')).not.toBeInTheDocument()
+  expect(screen.getByText('Associate Software Engineer')).toBeInTheDocument()
+})
+
 describe('JobsPage', () => {
   it('lists active jobs and hides skipped/rejected ones by default', async () => {
     renderPage()
