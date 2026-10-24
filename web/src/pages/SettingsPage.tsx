@@ -1,19 +1,29 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useBlocker, useSearchParams } from 'react-router-dom'
 import {
   Alert, App, Button, Card, Checkbox, Drawer, Empty, Flex, Form, Grid, Input, InputNumber, Radio, Select, Skeleton,
   Switch, Tabs, Tag, Tooltip, Typography, theme, type FormListFieldData,
 } from 'antd'
 import { DeleteOutlined, HistoryOutlined, PlusOutlined, UndoOutlined } from '@ant-design/icons'
 import { DEFAULT_SETTINGS } from '../data/defaultSettings'
-import { useLatestScrapeRuns, useSaveSettings, useSettingsVersions } from '../data/hooks'
+import { useFilteredJobs, useLatestScrapeRuns, useSaveSettings, useSettingsVersions } from '../data/hooks'
 import type { ScraperSettings, SettingsVersion } from '../data/types'
 import { dateTime, errorText, fromNow } from '../lib/format'
+import { groupByReason } from '../lib/reasons'
+import { filteredHref } from '../lib/ruleLinks'
 import { changedSections, normalizeSettings, settingsProblems } from '../lib/scraperSettings'
+
+const TABS = ['search', 'entry', 'titles', 'checks', 'skills', 'stacks']
+/** The period the drop counts on title rules cover. */
+const DROP_DAYS = 30
 
 export function SettingsPage() {
   const versions = useSettingsVersions()
-  // Kept here so the open tab survives the editor restarting after a save.
-  const [tab, setTab] = useState('search')
+  // The open tab lives in the URL (?tab=), so links from Filtered out land on the
+  // right rule, and it survives the editor restarting after a save.
+  const [params, setParams] = useSearchParams()
+  const tab = TABS.includes(params.get('tab') ?? '') ? params.get('tab')! : 'search'
+  const setTab = (next: string) => setParams({ tab: next }, { replace: true })
 
   return (
     <Flex vertical gap={16}>
@@ -40,7 +50,7 @@ function SettingsEditor({ versions, tab, onTabChange }: {
   tab: string
   onTabChange: (tab: string) => void
 }) {
-  const { message } = App.useApp()
+  const { message, modal } = App.useApp()
   const { token } = theme.useToken()
   const save = useSaveSettings()
   const runs = useLatestScrapeRuns()
@@ -48,6 +58,7 @@ function SettingsEditor({ versions, tab, onTabChange }: {
   const [note, setNote] = useState('')
   const [problems, setProblems] = useState<string[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
+  const screens = Grid.useBreakpoint()
 
   const current = versions[0]
   const initial = useMemo(() => normalizeSettings(current?.settings ?? DEFAULT_SETTINGS), [current])
@@ -61,6 +72,22 @@ function SettingsEditor({ versions, tab, onTabChange }: {
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty])
+
+  // ...and before leaving for another page in the app (tab changes stay on this page).
+  const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+    dirty && !save.isPending && currentLocation.pathname !== nextLocation.pathname)
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    modal.confirm({
+      title: 'Discard unsaved rule changes?',
+      content: 'Your edits to the scraper rules haven’t been saved.',
+      okText: 'Discard',
+      okButtonProps: { danger: true },
+      cancelText: 'Keep editing',
+      onOk: () => blocker.proceed(),
+      onCancel: () => blocker.reset(),
+    })
+  }, [blocker, modal])
 
   const submit = () => {
     const settings = normalizeSettings({ ...initial, ...form.getFieldsValue(true) })
@@ -101,6 +128,7 @@ function SettingsEditor({ versions, tab, onTabChange }: {
       </Flex>
 
       <Form form={form} layout="vertical" initialValues={initial} requiredMark={false}>
+        <Card styles={{ body: { paddingTop: 4, paddingInline: screens.md ? 24 : 12 } }}>
         <Tabs
           activeKey={tab}
           onChange={onTabChange}
@@ -113,6 +141,7 @@ function SettingsEditor({ versions, tab, onTabChange }: {
             { key: 'stacks', label: 'Other stacks', forceRender: true, children: <StacksTab /> },
           ]}
         />
+        </Card>
       </Form>
 
       {(dirty || problems.length > 0) && (
@@ -151,8 +180,50 @@ function WordsInput(props: { value?: string[]; onChange?: (v: string[]) => void;
   )
 }
 
+/** One bordered list for a rule or skill list: rows split by lines, not a card each. */
+function RuleList({ header, children }: { header?: React.ReactNode; children: React.ReactNode }) {
+  const { token } = theme.useToken()
+  return (
+    <div className="rule-list" style={{
+      border: `1px solid ${token.colorBorderSecondary}`, borderRadius: token.borderRadiusLG, overflow: 'hidden',
+    }}>
+      {header}
+      {children}
+    </div>
+  )
+}
+
+function Row({ children, muted }: { children: React.ReactNode; muted?: boolean }) {
+  const { token } = theme.useToken()
+  return (
+    <div className="rule-row" style={{ padding: '10px 12px', background: muted ? token.colorFillQuaternary : undefined }}>
+      {children}
+    </div>
+  )
+}
+
+/** Column labels over skill and stack rows, so a filled-in field still says what it is. */
+function ItemHeader({ withWeight }: { withWeight?: boolean }) {
+  const screens = Grid.useBreakpoint()
+  const { token } = theme.useToken()
+  if (!screens.md) return null
+  const label = (text: string, style: React.CSSProperties) => (
+    <Typography.Text type="secondary" style={{ fontSize: 12, ...style }}>{text}</Typography.Text>
+  )
+  return (
+    <Flex gap={8} style={{ padding: '8px 12px', background: token.colorFillQuaternary }} aria-hidden>
+      {label(withWeight ? 'Skill' : 'Stack', { width: 150 })}
+      {withWeight && label('Weight', { width: 140 })}
+      {label('Spellings to match', { flex: '2 1 260px' })}
+      {withWeight && label('Doesn’t count when part of', { flex: '1 1 200px' })}
+      {label('Off-stack', { width: 86 })}
+      <span style={{ width: 32 }} />
+    </Flex>
+  )
+}
+
 function Hint({ children }: { children: React.ReactNode }) {
-  return <Typography.Paragraph type="secondary" style={{ maxWidth: '75ch' }}>{children}</Typography.Paragraph>
+  return <Typography.Paragraph type="secondary" style={{ maxWidth: '62ch' }}>{children}</Typography.Paragraph>
 }
 
 const MATCHING_HINT = 'Matching ignores case and works on whole words; spaces and hyphens are interchangeable, so “help desk” also catches “help-desk” and “helpdesk”.'
@@ -205,6 +276,13 @@ function EntryLevelTab() {
 }
 
 function TitleRulesTab() {
+  const [params] = useSearchParams()
+  const highlight = params.get('rule')
+  const filtered = useFilteredJobs(DROP_DAYS)
+  const dropped = useMemo(
+    () => new Map(groupByReason(filtered.data ?? []).map((g) => [g.reason.toLowerCase(), g.jobs.length])),
+    [filtered.data],
+  )
   return (
     <Flex vertical gap={8}>
       <Hint>
@@ -214,7 +292,12 @@ function TitleRulesTab() {
       <Form.List name="title_rules">
         {(fields, { add, remove }) => (
           <Flex vertical gap={8}>
-            {fields.map((field) => <TitleRuleCard key={field.key} field={field} onRemove={() => remove(field.name)} />)}
+            <RuleList>
+              {fields.map((field) => (
+                <TitleRuleCard key={field.key} field={field} onRemove={() => remove(field.name)}
+                  highlight={highlight} dropped={filtered.data ? dropped : undefined} />
+              ))}
+            </RuleList>
             <Button icon={<PlusOutlined />} onClick={() => add({ label: '', enabled: true, words: [] })}
               style={{ alignSelf: 'start' }}>Add title rule</Button>
           </Flex>
@@ -224,11 +307,26 @@ function TitleRulesTab() {
   )
 }
 
-function TitleRuleCard({ field, onRemove }: { field: FormListFieldData; onRemove: () => void }) {
+function TitleRuleCard({ field, onRemove, highlight, dropped }: {
+  field: FormListFieldData
+  onRemove: () => void
+  /** The rule named in the URL (?rule=), linked from Filtered out. */
+  highlight: string | null
+  /** Jobs each rule dropped in the last DROP_DAYS days, by lower-cased rule name. */
+  dropped?: Map<string, number>
+}) {
+  const { token } = theme.useToken()
   const enabled = Form.useWatch(['title_rules', field.name, 'enabled'])
-  const label = Form.useWatch(['title_rules', field.name, 'label'])
+  const label: string | undefined = Form.useWatch(['title_rules', field.name, 'label'])
+  const ref = useRef<HTMLDivElement>(null)
+  const highlighted = !!highlight && !!label && label.trim().toLowerCase() === highlight.toLowerCase()
+  useEffect(() => {
+    if (highlighted) ref.current?.scrollIntoView({ block: 'center' })
+  }, [highlighted])
+  const count = label ? dropped?.get(label.trim().toLowerCase()) ?? 0 : 0
   return (
-    <Card size="small" style={{ opacity: enabled ? 1 : 0.7 }}>
+    <div ref={ref} style={highlighted ? { outline: `2px solid ${token.colorPrimary}`, outlineOffset: -2 } : undefined}>
+    <Row muted={!enabled && !highlighted}>
       <Flex gap={12} align="start" wrap>
         <Form.Item name={[field.name, 'enabled']} valuePropName="checked" noStyle>
           <Switch aria-label={`Use rule ${label || ''}`} style={{ marginTop: 5 }} />
@@ -245,7 +343,19 @@ function TitleRuleCard({ field, onRemove }: { field: FormListFieldData; onRemove
           <Button type="text" icon={<DeleteOutlined />} aria-label={`Delete rule ${label || ''}`} onClick={onRemove} />
         </Tooltip>
       </Flex>
-    </Card>
+      {dropped && label && (
+        <div style={{ marginTop: 6, paddingInlineStart: 56 }}>
+          {count > 0 ? (
+            <Link to={filteredHref(label.trim(), DROP_DAYS)} style={{ fontSize: 13 }}>
+              Dropped {count} {count === 1 ? 'job' : 'jobs'} in the last {DROP_DAYS} days
+            </Link>
+          ) : (
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>Nothing dropped in the last {DROP_DAYS} days</Typography.Text>
+          )}
+        </div>
+      )}
+    </Row>
+    </div>
   )
 }
 
@@ -295,19 +405,22 @@ function SkillsTab() {
   return (
     <Flex vertical gap={8}>
       <Hint>
-        Your skills. Each job's match score adds up the weights of the skills its description mentions; jobs below
+        Your skills. A job's matched skills add up their weights (core 3, secondary 2, adjacent 1); jobs below
         the minimum are dropped. “Off-stack” skills flag a job that mentions them but none of your core skills.
         {' '}{MATCHING_HINT}
       </Hint>
-      <Form.Item name="min_match_score" label="Drop jobs with a match score below">
+      <Form.Item name="min_match_score" label="Drop jobs whose matched skills weigh less than"
+        tooltip="Adds up the weights (core 3, secondary 2, adjacent 1) of your skills a job mentions">
         <InputNumber min={0} max={100} style={{ width: 120 }} />
       </Form.Item>
       <Form.List name="skills">
         {(fields, { add, remove }) => (
           <Flex vertical gap={8}>
-            {fields.map((field) => (
-              <ItemRow key={field.key} field={field} list="skills" onRemove={() => remove(field.name)} withWeight />
-            ))}
+            <RuleList header={<ItemHeader withWeight />}>
+              {fields.map((field) => (
+                <ItemRow key={field.key} field={field} list="skills" onRemove={() => remove(field.name)} withWeight />
+              ))}
+            </RuleList>
             <Button icon={<PlusOutlined />} style={{ alignSelf: 'start' }}
               onClick={() => add({ name: '', weight: 2, aliases: [], exclude: [], off_stack: false })}>
               Add skill
@@ -329,9 +442,11 @@ function StacksTab() {
       <Form.List name="other_stacks">
         {(fields, { add, remove }) => (
           <Flex vertical gap={8}>
-            {fields.map((field) => (
-              <ItemRow key={field.key} field={field} list="other_stacks" onRemove={() => remove(field.name)} />
-            ))}
+            <RuleList header={<ItemHeader />}>
+              {fields.map((field) => (
+                <ItemRow key={field.key} field={field} list="other_stacks" onRemove={() => remove(field.name)} />
+              ))}
+            </RuleList>
             <Button icon={<PlusOutlined />} style={{ alignSelf: 'start' }}
               onClick={() => add({ name: '', aliases: [], off_stack: false })}>
               Add stack
@@ -350,8 +465,9 @@ function ItemRow({ field, list, onRemove, withWeight }: {
   withWeight?: boolean
 }) {
   const name = Form.useWatch([list, field.name, 'name'])
+  const screens = Grid.useBreakpoint()
   return (
-    <Card size="small">
+    <Row>
       <Flex gap={8} align="start" wrap>
         <Form.Item name={[field.name, 'name']} noStyle>
           <Input placeholder="Name" aria-label="Name" style={{ width: 150 }} />
@@ -374,13 +490,16 @@ function ItemRow({ field, list, onRemove, withWeight }: {
           </div>
         )}
         <Form.Item name={[field.name, 'off_stack']} valuePropName="checked" noStyle>
-          <Checkbox style={{ marginTop: 5 }}>Off-stack</Checkbox>
+          {/* The column header names it on wider screens; phones have no header row. */}
+          <Checkbox aria-label={`${name || 'This item'} is off-stack`} style={{ marginTop: 5, width: screens.md ? 86 : undefined }}>
+            {!screens.md && 'Off-stack'}
+          </Checkbox>
         </Form.Item>
         <Tooltip title="Delete">
           <Button type="text" icon={<DeleteOutlined />} aria-label={`Delete ${name || 'row'}`} onClick={onRemove} />
         </Tooltip>
       </Flex>
-    </Card>
+    </Row>
   )
 }
 

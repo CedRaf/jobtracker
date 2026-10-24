@@ -118,7 +118,11 @@ describe('JobsPage', () => {
     await screen.findByText('Junior Full Stack Developer')
     await userEvent.click(screen.getByRole('tab', { name: /LinkedIn/ }))
     await screen.findByText('AI Engineer – Junior')
-    for (const title of ['AI Engineer – Junior', 'React Developer (Entry Level)', 'Junior React Native Developer']) {
+    const titles = [
+      'AI Engineer – Junior', 'React Developer (Entry Level)', 'Junior React Native Developer',
+      'Associate Software Engineer – Platform Integrations and Internal Tooling (Hybrid)',
+    ]
+    for (const title of titles) {
       await userEvent.click(screen.getByRole('combobox', { name: `Status of ${title}` }))
       await userEvent.click((await screen.findAllByTitle('Applied')).at(-1)!)
     }

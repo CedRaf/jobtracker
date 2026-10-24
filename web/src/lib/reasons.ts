@@ -14,9 +14,13 @@ export function reasonGroup(reason: string): string {
   return base
 }
 
-/** The specific match inside the parentheses, if any. */
+/**
+ * The specific match inside the parentheses, if any. "low skill match (score 1)"
+ * gives null: the match score stays hidden everywhere (see lib/settings.ts).
+ */
 export function reasonDetail(reason: string): string | null {
-  return reason.match(/\(([^)]*)\)\s*$/)?.[1] ?? null
+  const detail = reason.match(/\(([^)]*)\)\s*$/)?.[1] ?? null
+  return detail && /^score\b/i.test(detail) ? null : detail
 }
 
 export interface ReasonGroup {

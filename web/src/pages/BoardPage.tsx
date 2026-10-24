@@ -180,7 +180,11 @@ function Column({ status, jobs, onOpen, entryLevelOf }: {
             Drop jobs here
           </Typography.Text>
         ) : (
-          jobs.map((job) => <DraggableCard key={jobKeyString(job)} job={job} entry={entryLevelOf(job)} onOpen={onOpen} />)
+          // Entry-level only matters while triaging, so only New cards carry it.
+          jobs.map((job) => (
+            <DraggableCard key={jobKeyString(job)} job={job} entry={status === 'new' ? entryLevelOf(job) : null}
+              onOpen={onOpen} />
+          ))
         )}
       </div>
     </section>
@@ -225,7 +229,7 @@ function Card({ job, entry, overlay }: { job: Job; entry: EntryLevel; overlay?: 
         <CompanyAvatar company={job.company} size={28} />
         <Flex vertical gap={2} style={{ minWidth: 0 }}>
           <Typography.Text strong className="clamp-2" style={{ fontSize: 13 }}>{job.title}</Typography.Text>
-          <Typography.Text type="secondary" className="clamp-2" style={{ fontSize: 12 }}>
+          <Typography.Text type="secondary" ellipsis={{ tooltip: true }} style={{ fontSize: 12 }}>
             {job.company ?? 'Unknown company'} · {job.location ?? 'No location'}
           </Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>

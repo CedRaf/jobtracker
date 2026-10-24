@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  App, Button, Descriptions, Divider, Drawer, Flex, Grid, Input, Skeleton, Space, Typography,
+  App, Button, Collapse, Descriptions, Divider, Drawer, Flex, Grid, Input, Skeleton, Space, Typography,
 } from 'antd'
 import { ExportOutlined, FormOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import type { Job, JobPatch } from '../data/types'
@@ -113,6 +113,21 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 function JobDetails({ job, onDirtyChange }: { job: Job; onDirtyChange: (dirty: boolean) => void }) {
   const description = useJobDescription(job)
+  const screens = Grid.useBreakpoint()
+  const details = (
+    <Descriptions size="small" column={{ xs: 1, sm: 2 }} bordered
+      items={[
+        { label: 'Arrangement', children: job.work_arrangements.join(', ') || 'Not listed' },
+        { label: 'Work type', children: job.work_type ?? '—' },
+        { label: 'Salary', children: job.salary_text ?? 'Not shown' },
+        { label: 'Apply via', children: job.apply_type ?? '—' },
+        { label: 'Posted', children: dateTime(job.posted_at) },
+        { label: 'First seen', children: dateTime(job.first_seen) },
+        ...(job.seniority ? [{ label: 'Seniority', children: job.seniority }] : []),
+        { label: 'Found by', children: job.search_terms.join(', ') || '—', span: 'filled' as const },
+      ]}
+    />
+  )
   const entry = useEntryLevel()(job)
 
   return (
@@ -137,7 +152,7 @@ function JobDetails({ job, onDirtyChange }: { job: Job; onDirtyChange: (dirty: b
         <Flex vertical gap={12}>
           {job.flags.length > 0 && <Section title="Flags"><FlagTags flags={job.flags} /></Section>}
           <Section title="Your skills it mentions">
-            {job.matched_skills.length ? <SkillTags skills={job.matched_skills} color="cyan" /> : '—'}
+            {job.matched_skills.length ? <SkillTags skills={job.matched_skills} /> : '—'}
           </Section>
           {job.missing_skills.length > 0 && (
             <Section title="Other stacks it mentions"><SkillTags skills={job.missing_skills} /></Section>
@@ -145,18 +160,10 @@ function JobDetails({ job, onDirtyChange }: { job: Job; onDirtyChange: (dirty: b
         </Flex>
       )}
 
-      <Descriptions size="small" column={{ xs: 1, sm: 2 }} bordered
-        items={[
-          { label: 'Arrangement', children: job.work_arrangements.join(', ') || 'Not listed' },
-          { label: 'Work type', children: job.work_type ?? '—' },
-          { label: 'Salary', children: job.salary_text ?? 'Not shown' },
-          { label: 'Apply via', children: job.apply_type ?? '—' },
-          { label: 'Posted', children: dateTime(job.posted_at) },
-          { label: 'First seen', children: dateTime(job.first_seen) },
-          ...(job.seniority ? [{ label: 'Seniority', children: job.seniority }] : []),
-          { label: 'Found by', children: job.search_terms.join(', ') || '—', span: 'filled' as const },
-        ]}
-      />
+      {/* Phones fold the details away, so the description isn't pushed below an 8-row table. */}
+      {screens.md ? details : (
+        <Collapse ghost size="small" items={[{ key: 'details', label: 'Details: salary, arrangement, dates', children: details }]} />
+      )}
 
       <Section title="Apply">
         <Flex vertical gap={8} align="start">

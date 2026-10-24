@@ -92,24 +92,30 @@ export function DailyJobsChart({ data }: { data: DayCount[] }) {
 }
 
 /** A ranked horizontal bar list with the value at each bar's end. */
-export function BarList({ data, labelKey, valueKey, name, height }: {
+export function BarList({ data, labelKey, valueKey, name, height, valueLabelKey, onSelect }: {
   data: object[]
   labelKey: string
   valueKey: string
   name: string
   height?: number
+  /** The field shown at the end of each bar; defaults to the value. */
+  valueLabelKey?: string
+  /** Makes bars clickable (the table view should offer the same as links). */
+  onSelect?: (row: object) => void
 }) {
   const c = useChartColors()
   const rowHeight = 30
   return (
     <ResponsiveContainer width="100%" height={height ?? Math.max(120, data.length * rowHeight + 16)}>
-      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 36, left: 0, bottom: 4 }} barCategoryGap={6}>
+      <BarChart data={data} layout="vertical" margin={{ top: 4, right: valueLabelKey ? 64 : 36, left: 0, bottom: 4 }} barCategoryGap={6}>
         <XAxis type="number" hide allowDecimals={false} />
         <YAxis type="category" dataKey={labelKey} width={140} tickLine={false} axisLine={{ stroke: c.grid }}
           tick={{ fill: c.token.colorText, fontSize: 12 }} />
         <Tooltip cursor={{ fill: c.token.colorFillTertiary }} content={<ChartTooltip />} />
-        <Bar isAnimationActive={false} dataKey={valueKey} name={name} fill={c.single} maxBarSize={18} radius={[0, 4, 4, 0]}>
-          <LabelList dataKey={valueKey} position="right" fill={c.text} fontSize={12} />
+        <Bar isAnimationActive={false} dataKey={valueKey} name={name} fill={c.single} maxBarSize={18} radius={[0, 4, 4, 0]}
+          onClick={onSelect ? (_: unknown, i: number) => onSelect(data[i]) : undefined}
+          style={onSelect ? { cursor: 'pointer' } : undefined}>
+          <LabelList dataKey={valueLabelKey ?? valueKey} position="right" fill={c.text} fontSize={12} />
         </Bar>
       </BarChart>
     </ResponsiveContainer>

@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { App as AntApp, ConfigProvider, Result } from 'antd'
+import { App as AntApp, ConfigProvider, Grid, Result } from 'antd'
 import { api } from './data/api'
 import { AuthProvider } from './data/auth'
 import { ApiContext } from './data/hooks'
@@ -14,41 +14,46 @@ import { AnalyticsPage } from './pages/AnalyticsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { GlobalStyles } from './components/GlobalStyles'
 import { LastVisitContext, startVisit, useTrackVisit } from './lib/lastVisit'
-import { ThemeModeContext, themeConfig, useThemeMode } from './lib/theme'
+import { ThemeModeContext, ThemeToggleContext, themeConfig, useThemeMode } from './lib/theme'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 60_000, refetchOnWindowFocus: true, retry: 1 } },
 })
 
+// A data router, so pages can block navigation (the Rules page guards unsaved edits).
+const router = createBrowserRouter([
+  {
+    element: <AuthGate><AppLayout /></AuthGate>,
+    children: [
+      { index: true, element: <JobsPage /> },
+      { path: 'board', element: <BoardPage /> },
+      { path: 'analytics', element: <AnalyticsPage /> },
+      { path: 'filtered', element: <FilteredPage /> },
+      { path: 'rules', element: <SettingsPage /> },
+      { path: '*', element: <Navigate to="/" replace /> },
+    ],
+  },
+])
+
 export default function App() {
   const { mode, toggle } = useThemeMode()
   const [lastVisit] = useState(() => startVisit(typeof localStorage === 'undefined' ? undefined : localStorage))
   useTrackVisit()
+  const screens = Grid.useBreakpoint()
 
   return (
     <ConfigProvider theme={themeConfig(mode)}>
      <ThemeModeContext.Provider value={mode}>
+     <ThemeToggleContext.Provider value={toggle}>
       <GlobalStyles />
-      <AntApp>
+      {/* Phones show messages (Saved · Undo) just above the tab bar, within thumb reach. */}
+      <AntApp message={{ top: screens.sm ? 8 : 'calc(100dvh - 136px)' }}>
         {api ? (
           <ApiContext.Provider value={api}>
             <QueryClientProvider client={queryClient}>
               <AuthProvider>
                 <LastVisitContext.Provider value={lastVisit}>
-                  <BrowserRouter>
-                    <AuthGate>
-                      <Routes>
-                        <Route element={<AppLayout themeMode={mode} onToggleTheme={toggle} />}>
-                          <Route index element={<JobsPage />} />
-                          <Route path="board" element={<BoardPage />} />
-                          <Route path="analytics" element={<AnalyticsPage />} />
-                          <Route path="filtered" element={<FilteredPage />} />
-                          <Route path="rules" element={<SettingsPage />} />
-                          <Route path="*" element={<Navigate to="/" replace />} />
-                        </Route>
-                      </Routes>
-                    </AuthGate>
-                  </BrowserRouter>
+                  <RouterProvider router={router} />
                 </LastVisitContext.Provider>
               </AuthProvider>
             </QueryClientProvider>
@@ -61,6 +66,7 @@ export default function App() {
           />
         )}
       </AntApp>
+     </ThemeToggleContext.Provider>
      </ThemeModeContext.Provider>
     </ConfigProvider>
   )

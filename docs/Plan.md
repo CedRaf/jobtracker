@@ -177,6 +177,23 @@ Setup steps (login, local run, Vercel): `docs/DASHBOARD_SETUP.md`.
     - Filters are full width.
     - The nav is shortened, and the demo tag stays visible.
   - Tests: 44 (new ones cover visit tracking, keyboard open, skip with a reason, and the caught-up state).
+- [x] **Design pass 2 with Impeccable (2026-10-24), covering Board, Analytics and Rules:**
+  - The Jobs table no longer scrolls sideways (the LinkedIn tab did with long flags). The table fits the screen, and the tag columns wrap.
+  - **Board:** five columns fit a laptop screen. Entry-level tags appear only in New, and the company line is one line.
+  - **Rules:** one card surface, rule lists drawn as one bordered list, column headers on Skills and Other stacks, and a prompt before leaving with unsaved edits.
+    - The prompt needs a data router, so `App.tsx` now uses `createBrowserRouter`, and tests render through `createMemoryRouter`.
+  - **Rule audit loop:**
+    - Filtered out reads `?days=&rule=`, opens the biggest or linked group, and has an "Edit rule" link on each group.
+    - Rules reads `?tab=&rule=` and highlights the rule. Each title rule shows "Dropped N jobs in the last 30 days", linking back.
+    - Analytics "Why jobs were filtered out" bars and table rows open Filtered out with the same period. The mapping is in `web/src/lib/ruleLinks.ts`.
+  - **Hidden score:** the Filtered page showed "score N" for low skill match, so `reasonDetail` now hides it. The Rules threshold label talks about skill weights instead of a score.
+  - **Quieter rows:** skills are plain text, and the table shows concerns only (good signs are in the drawer and the Entry-level tag). Emailed is gold so it doesn't look like Applied.
+  - **Phones:**
+    - A bottom tab bar with all five pages.
+    - Applied / Emailed / Skip buttons on New jobs.
+    - The Saved · Undo message appears above the tab bar.
+    - Drawer details fold away.
+  - **Critique:** 22/40 → 28/40. Still open: keyboard shortcuts and bulk actions on the table, filters kept in the URL, and "new" being tracked per device.
 - [ ] **Your steps:** create your login and add it to `app_users`, then deploy to Vercel (see the setup guide).
 - [ ] **Done when:** you can do your daily review from the dashboard instead of the sheet.
 

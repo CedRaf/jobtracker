@@ -22,6 +22,10 @@ it('reasonDetail returns the specific match', () => {
   expect(reasonDetail('Hybrid outside Cebu')).toBeNull()
 })
 
+it('reasonDetail never reveals the hidden match score', () => {
+  expect(reasonDetail('low skill match (score 1)')).toBeNull()
+})
+
 it('groupByReason puts the biggest group first', () => {
   const job = (external_id: string, reason: string) =>
     ({ external_id, reason }) as FilteredJob

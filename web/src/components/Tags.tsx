@@ -10,13 +10,18 @@ import { STATUS_META } from '../lib/status'
  * presets (shade 8 on shade 1) so it passes WCAG AA. Dark mode's preset
  * palettes run from dark to light, so the same shades work there too.
  */
-export function ToneTag({ color, children, style }: { color?: string; children: ReactNode; style?: CSSProperties }) {
+export function ToneTag({ color, children, style, icon }: {
+  color?: string
+  children: ReactNode
+  style?: CSSProperties
+  icon?: ReactNode
+}) {
   const { token } = theme.useToken()
   const shade = (n: number) => (token as unknown as Record<string, string>)[`${color}${n}`]
   const tone = !color || color === 'default' || !shade(8)
     ? { color: token.colorTextSecondary, background: token.colorFillQuaternary, borderColor: token.colorBorderSecondary }
     : { color: shade(8), background: shade(1), borderColor: shade(3) }
-  return <Tag style={{ marginInlineEnd: 0, ...tone, ...style }}>{children}</Tag>
+  return <Tag icon={icon} style={{ marginInlineEnd: 0, ...tone, ...style }}>{children}</Tag>
 }
 
 /** Marks a job that takes juniors or fresh grads; hover for why. */
@@ -38,7 +43,7 @@ export function FlagTags({ flags }: { flags: string[] }) {
   return (
     <Flex wrap gap={4}>
       {flags.map((flag) => (
-        <ToneTag key={flag} color={FLAG_COLORS[flagTone(flag)]}>{flagLabel(flag)}</ToneTag>
+        <ToneTag key={flag} color={FLAG_COLORS[flagTone(flag)]} style={{ whiteSpace: 'normal', lineHeight: '18px', paddingBlock: 1 }}>{flagLabel(flag)}</ToneTag>
       ))}
     </Flex>
   )

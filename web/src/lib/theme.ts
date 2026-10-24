@@ -5,6 +5,8 @@ export type ThemeMode = 'light' | 'dark'
 
 /** The current mode, for the few things antd tokens don't cover (chart colours). */
 export const ThemeModeContext = createContext<ThemeMode>('light')
+/** Switches between light and dark; provided next to ThemeModeContext. */
+export const ThemeToggleContext = createContext<() => void>(() => {})
 
 const KEY = 'jobtracker.theme'
 

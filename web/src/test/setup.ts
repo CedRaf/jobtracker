@@ -31,3 +31,6 @@ if (!window.matchMedia) {
       dispatchEvent: () => false,
     }) as MediaQueryList
 }
+
+// jsdom doesn't lay out, so it has no scrollIntoView (Rules and Filtered scroll to a linked rule).
+Element.prototype.scrollIntoView ??= function () {}

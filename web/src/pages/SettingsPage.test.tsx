@@ -3,6 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createDemoApi } from '../data/demoApi'
 import { renderWithApi } from '../test/renderWithApi'
+import { Link } from 'react-router-dom'
 import { SettingsPage } from './SettingsPage'
 
 const daysInput = () => screen.getByLabelText('Only jobs listed in the last')
@@ -58,3 +59,18 @@ it('restores an older version as a new one', async () => {
   expect(latest.note).toBe('Restored version 1')
   expect(latest.settings.min_match_score).toBe(first.settings.min_match_score)
 }, 20_000)
+
+it('asks before leaving the page with unsaved edits', async () => {
+  renderWithApi(<><Link to="/jobs">Go to jobs</Link><SettingsPage /></>)
+  await screen.findByText(/^Version 1, saved/)
+  await userEvent.clear(daysInput())
+  await userEvent.type(daysInput(), '9')
+  await userEvent.click(screen.getByRole('link', { name: 'Go to jobs' }))
+  expect((await screen.findAllByText('Discard unsaved rule changes?'))[0]).toBeInTheDocument()
+})
+
+it('opens the tab named in the link and shows what each title rule dropped', async () => {
+  renderWithApi(<SettingsPage />, undefined, '/rules?tab=titles&rule=seniority%20title')
+  expect(await screen.findByRole('tab', { name: 'Title rules', selected: true })).toBeInTheDocument()
+  expect((await screen.findAllByText(/^Dropped \d+ jobs? in the last 30 days$/)).length).toBeGreaterThan(0)
+})

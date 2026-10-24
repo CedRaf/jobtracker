@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Alert, Button, Card, Col, Flex, Row, Segmented, Skeleton, Table, Tag, Tooltip, Typography } from 'antd'
+import { Link, useNavigate } from 'react-router-dom'
+import { Alert, Button, Card, Col, Flex, Row, Segmented, Skeleton, Table, Tooltip, Typography } from 'antd'
 import type { TableColumnsType } from 'antd'
 import {
   CheckCircleOutlined, CloseCircleOutlined, ExportOutlined, MinusCircleOutlined, SyncOutlined, WarningOutlined,
@@ -8,11 +9,13 @@ import dayjs from 'dayjs'
 import type { ScrapeRun } from '../data/types'
 import { useFilteredJobs, useJobs, useScrapeRuns, useStatusHistory } from '../data/hooks'
 import { BarList, ChartCard, DailyJobsChart } from '../components/charts'
+import { ToneTag } from '../components/Tags'
 import {
   funnel, jobsPerDay, median, reasonCounts, responseDays, runState, seenWithin, skillDemand, staleSources,
   successRate, type DayCount, type FunnelStage, type RunState, type SkillCount,
 } from '../lib/analytics'
 import { dateTime, errorText, fromNow, sourceLabel } from '../lib/format'
+import { filteredHref } from '../lib/ruleLinks'
 
 const PERIODS = [
   { label: '30 days', value: 30 },
@@ -30,6 +33,7 @@ const oneDecimal = (value: number) => (Math.round(value * 10) / 10).toString()
 
 export function AnalyticsPage() {
   const [days, setDays] = useState(30)
+  const navigate = useNavigate()
   const jobs = useJobs()
   const history = useStatusHistory()
   const filtered = useFilteredJobs(days)
@@ -42,8 +46,20 @@ export function AnalyticsPage() {
     const ids = new Set(inPeriod.map((j) => `${j.source}:${j.external_id}`))
     return responseDays((history.data ?? []).filter((h) => ids.has(`${h.job_source}:${h.job_external_id}`)))
   }, [inPeriod, history.data])
-  const reasons = useMemo(() => reasonCounts(filtered.data ?? []), [filtered.data])
+  // Rule names come from the scraper in lower case; the Filtered page capitalises them too.
+  const reasons = useMemo(
+    () => reasonCounts(filtered.data ?? []).map((r) => ({
+      ...r, group: r.reason, reason: r.reason.charAt(0).toUpperCase() + r.reason.slice(1),
+    })),
+    [filtered.data],
+  )
   const medianWait = median(waits)
+  // Each stage's share of the one before it: where the search loses jobs.
+  const funnelRows = flow.stages.map((stage, i) => {
+    const before = i > 0 ? flow.stages[i - 1].count : 0
+    const rate = before ? `${Math.round((stage.count / before) * 100)}%` : null
+    return { ...stage, rate, shown: rate ? `${stage.count} · ${rate}` : String(stage.count) }
+  })
 
   const loading = jobs.isPending || history.isPending
   const failed = jobs.error ?? history.error
@@ -98,26 +114,37 @@ export function AnalyticsPage() {
             <Col xs={24} lg={12}>
               <ChartCard<FunnelStage>
                 title="Application funnel"
-                subtitle="Jobs that ever reached each stage"
-                chart={<BarList data={flow.stages} labelKey="label" valueKey="count" name="Jobs" />}
+                subtitle="Jobs at each stage · % of the stage before"
+                chart={<BarList data={funnelRows} labelKey="label" valueKey="count" valueLabelKey="shown" name="Jobs" />}
                 rows={flow.stages.some((s) => s.count > 0) ? flow.stages : []}
                 rowKey="key"
                 columns={[
                   { title: 'Stage', dataIndex: 'label' },
                   { title: 'Jobs', dataIndex: 'count', align: 'right' },
+                  {
+                    title: 'Of previous',
+                    key: 'rate',
+                    align: 'right',
+                    render: (_, stage) => funnelRows.find((r) => r.key === stage.key)?.rate ?? '—',
+                  },
                 ]}
               />
             </Col>
             <Col xs={24} lg={12}>
-              <ChartCard<{ reason: string; count: number }>
+              <ChartCard<{ reason: string; group: string; count: number }>
                 title="Why jobs were filtered out"
-                subtitle="Grouped by rule"
-                chart={<BarList data={reasons.slice(0, 10)} labelKey="reason" valueKey="count" name="Jobs" />}
+                subtitle="Grouped by rule · open one to see its jobs"
+                chart={<BarList data={reasons.slice(0, 10)} labelKey="reason" valueKey="count" name="Jobs"
+                  onSelect={(row) => navigate(filteredHref((row as { group: string }).group, days))} />}
                 rows={reasons}
                 rowKey="reason"
                 empty={filtered.isError ? `Couldn't load: ${errorText(filtered.error)}` : 'Nothing filtered out'}
                 columns={[
-                  { title: 'Rule', dataIndex: 'reason' },
+                  {
+                    title: 'Rule',
+                    dataIndex: 'reason',
+                    render: (reason: string, row) => <Link to={filteredHref(row.group, days)}>{reason}</Link>,
+                  },
                   { title: 'Jobs', dataIndex: 'count', align: 'right' },
                 ]}
               />
@@ -164,16 +191,14 @@ function Tile({ label, value, hint }: { label: string; value: number | string; h
 // ---- Scraper health --------------------------------------------------------------
 
 const STATE_TAGS: Record<RunState, { label: string; color: string; icon: React.ReactNode }> = {
-  ok: { label: 'OK', color: 'success', icon: <CheckCircleOutlined /> },
-  failed: { label: 'Failed', color: 'error', icon: <CloseCircleOutlined /> },
-  running: { label: 'Running', color: 'processing', icon: <SyncOutlined spin /> },
-  interrupted: { label: 'Interrupted', color: 'warning', icon: <MinusCircleOutlined /> },
+  ok: { label: 'OK', color: 'green', icon: <CheckCircleOutlined /> },
+  failed: { label: 'Failed', color: 'red', icon: <CloseCircleOutlined /> },
+  running: { label: 'Running', color: 'blue', icon: <SyncOutlined spin /> },
+  interrupted: { label: 'Interrupted', color: 'gold', icon: <MinusCircleOutlined /> },
 }
 
 const StateTag = ({ state }: { state: RunState }) => (
-  <Tag color={STATE_TAGS[state].color} icon={STATE_TAGS[state].icon} style={{ marginInlineEnd: 0 }}>
-    {STATE_TAGS[state].label}
-  </Tag>
+  <ToneTag color={STATE_TAGS[state].color} icon={STATE_TAGS[state].icon}>{STATE_TAGS[state].label}</ToneTag>
 )
 
 const count = (n: number | null) => (n === null ? '—' : n)

@@ -2,11 +2,12 @@ import type { GlobalToken } from 'antd'
 import type { JobStatus } from '../data/types'
 
 // antd preset colours (they adapt to dark mode). "New" shares the teal primary:
-// it's the review queue. Rejected and Skip differ so closed jobs can be told apart.
+// it's the review queue. Applied and Emailed sit far apart (blue, gold) so their
+// small dots don't blur together; Rejected and Skip differ too.
 export const STATUS_META: Record<JobStatus, { label: string; color: string }> = {
   new: { label: 'New', color: 'cyan' },
   applied: { label: 'Applied', color: 'blue' },
-  emailed: { label: 'Emailed', color: 'geekblue' },
+  emailed: { label: 'Emailed', color: 'gold' },
   interview: { label: 'Interview', color: 'purple' },
   offer: { label: 'Offer', color: 'green' },
   rejected: { label: 'Rejected', color: 'volcano' },

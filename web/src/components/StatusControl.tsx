@@ -48,13 +48,24 @@ interface CellProps {
   width?: number | string
   /** Called after a new status is picked. */
   onChanged?: (job: Job) => void
+  /** Phones: a New job gets three big buttons (Applied / Emailed / Skip) instead of the 7-option select. */
+  quick?: boolean
 }
 
-export function StatusCell({ job, size, width, onChanged }: CellProps) {
+/** The three outcomes of triaging a new job. */
+const TRIAGE: JobStatus[] = ['applied', 'emailed', 'skip']
+
+export function StatusCell({ job, size, width, onChanged, quick }: CellProps) {
   const change = useChangeStatus()
   const update = useUpdateJob()
   const [asking, setAsking] = useState(false)
   const [reason, setReason] = useState(job.skip_reason ?? '')
+
+  const pick = (status: JobStatus) => {
+    change(job, status)
+    onChanged?.(job)
+    if (status === 'skip') setAsking(true)
+  }
 
   const saveReason = () => {
     const text = reason.trim()
@@ -84,14 +95,20 @@ export function StatusCell({ job, size, width, onChanged }: CellProps) {
           </Flex>
         }
       >
-        <span>
-          <StatusSelect value={job.status} size={size} width={width} label={`Status of ${job.title}`}
-            onChange={(status) => {
-              change(job, status)
-              onChanged?.(job)
-              if (status === 'skip') setAsking(true)
-            }} />
-        </span>
+        {quick && job.status === 'new' ? (
+          <Flex gap={8} role="group" aria-label={`Triage ${job.title}`}>
+            {TRIAGE.map((status) => (
+              <Button key={status} onClick={() => pick(status)} style={{ flex: 1, height: 40 }}
+                aria-label={`Mark ${job.title} as ${STATUS_META[status].label}`}>
+                <StatusDot status={status} />{STATUS_META[status].label}
+              </Button>
+            ))}
+          </Flex>
+        ) : (
+          <span>
+            <StatusSelect value={job.status} size={size} width={width} label={`Status of ${job.title}`} onChange={pick} />
+          </span>
+        )}
       </Popover>
     </div>
   )

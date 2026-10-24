@@ -10,7 +10,7 @@ import { JobDrawer } from '../components/JobDrawer'
 import { JobFiltersBar } from '../components/JobFiltersBar'
 import { StatCards } from '../components/StatCards'
 import { StatusCell } from '../components/StatusControl'
-import { EntryLevelTag, FlagTags, SkillTags, ToneTag } from '../components/Tags'
+import { EntryLevelTag, FlagTags, ToneTag } from '../components/Tags'
 import { applyFilters, DEFAULT_FILTERS, isNewSince, type JobFilters } from '../lib/filters'
 import { flagTone } from '../lib/flags'
 import { dateTime, dayTime, errorText, fromNow, sourceLabel } from '../lib/format'
@@ -129,7 +129,7 @@ export function JobsPage() {
           <Freshness run={runs.data?.find((r) => r.source === source)} loaded={!runs.isPending} lastVisit={lastVisit} />
         </div>
         <Button icon={<ReloadOutlined />} loading={jobs.isFetching || runs.isFetching}
-          aria-label={screens.sm ? undefined : 'Refresh'}
+          aria-label={screens.sm ? undefined : 'Refresh'} style={{ flexShrink: 0 }}
           onClick={() => { jobs.refetch(); runs.refetch() }}>
           {screens.sm && 'Refresh'}
         </Button>
@@ -252,9 +252,22 @@ function JobHeading({ job, isNew, entry }: { job: Job; isNew: boolean; entry: En
   )
 }
 
-/** Concerns first, so the two flags a phone has room for are the ones that matter. */
-const topFlags = (flags: string[], max: number) =>
-  [...flags].sort((a, b) => Number(flagTone(b) === 'warning') - Number(flagTone(a) === 'warning')).slice(0, max)
+/**
+ * Rows show concerns only: good signs are summed up by the Entry-level tag and
+ * listed in full in the drawer, so colour in the table means "look at this".
+ */
+const concerns = (flags: string[]) => flags.filter((f) => flagTone(f) === 'warning')
+
+/** Matched skills as quiet text: "TypeScript · React · Node.js +2". */
+function SkillList({ skills, max = 3 }: { skills: string[]; max?: number }) {
+  if (!skills.length) return null
+  const more = skills.length - max
+  return (
+    <Typography.Text type="secondary" className="clamp-2" style={{ maxWidth: 220 }}>
+      {skills.slice(0, max).join(' · ')}{more > 0 && ` +${more}`}
+    </Typography.Text>
+  )
+}
 
 interface JobTableProps {
   jobs: Job[]
@@ -277,12 +290,14 @@ function JobTable({
   )
 
   const firstSeen = {
-    title: 'First seen',
+    title: <span style={{ whiteSpace: 'nowrap' }}>First seen</span>,
     dataIndex: 'first_seen',
     sorter: true,
     sortOrder,
     sortDirections: ['descend', 'ascend'] as SortOrder[],
-    render: (iso: string) => <Tooltip title={dateTime(iso)}>{fromNow(iso)}</Tooltip>,
+    render: (iso: string) => (
+      <Tooltip title={dateTime(iso)}><span style={{ whiteSpace: 'nowrap' }}>{fromNow(iso)}</span></Tooltip>
+    ),
   }
 
   // Phones get one stacked column, so status and flags fit without scrolling sideways.
@@ -293,10 +308,16 @@ function JobTable({
       render: (_, job) => (
         <Flex vertical gap={8}>
           <JobHeading job={job} isNew={isNewSince(job, lastVisit)} entry={entryLevelOf(job)} />
-          {job.flags.length > 0 && <FlagTags flags={topFlags(job.flags, 2)} />}
-          <Flex justify="space-between" align="center" gap={8}>
-            {status(job, 'middle', 150)}
-            <Typography.Text type="secondary">{fromNow(job.first_seen)}</Typography.Text>
+          {concerns(job.flags).length > 0 && <FlagTags flags={concerns(job.flags).slice(0, 2)} />}
+          {/* One StatusCell in one place for both layouts, so the skip-reason prompt
+              survives the switch from triage buttons to the select. */}
+          <Flex vertical={job.status === 'new'} justify="space-between"
+            align={job.status === 'new' ? 'stretch' : 'center'} gap={8}>
+            {job.status === 'new' && (
+              <Typography.Text type="secondary" style={{ fontSize: 13 }}>Found {fromNow(job.first_seen)}</Typography.Text>
+            )}
+            <StatusCell job={job} quick size="middle" width={150} onChanged={onStatusChanged} />
+            {job.status !== 'new' && <Typography.Text type="secondary">{fromNow(job.first_seen)}</Typography.Text>}
           </Flex>
         </Flex>
       ),
@@ -329,13 +350,14 @@ function JobTable({
       title: 'Skills',
       dataIndex: 'matched_skills',
       responsive: ['xl'],
-      render: (skills: string[]) => <SkillTags skills={skills} color="cyan" max={3} />,
+      render: (skills: string[]) => <SkillList skills={skills} />,
     },
     {
-      title: 'Flags',
+      title: 'Concerns',
       dataIndex: 'flags',
       responsive: ['lg'],
-      render: (flags: string[]) => <FlagTags flags={flags} />,
+      // Capped so long flags wrap instead of widening the table past the screen.
+      render: (flags: string[]) => <div style={{ maxWidth: 240 }}><FlagTags flags={concerns(flags)} /></div>,
     },
     {
       title: 'Status',
@@ -370,7 +392,7 @@ function JobTable({
         },
         style: { cursor: 'pointer' },
       })}
-      scroll={screens.md ? { x: 'max-content' } : undefined}
+      // No max-content scroll: cells wrap to fit the screen, so Status and First seen stay in view.
       locale={{ emptyText: empty }}
     />
   )
