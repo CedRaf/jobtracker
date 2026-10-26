@@ -156,6 +156,10 @@ export interface AppUser {
 export interface DataApi {
   /** True when running on built-in sample data instead of Supabase. */
   demo: boolean
+  /** The job sites this deployment shows (the public demo shows one). */
+  sources: JobSource[]
+  /** Display names for the sites. */
+  sourceLabels: Record<JobSource, string>
   listJobs(): Promise<Job[]>
   getDescription(key: JobKey): Promise<string | null>
   updateJob(key: JobKey, patch: JobPatch): Promise<Job>

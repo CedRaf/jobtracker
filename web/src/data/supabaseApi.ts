@@ -48,6 +48,8 @@ export function createSupabaseApi(url: string, publishableKey: string): DataApi 
 
   return {
     demo: false,
+    sources: ['jobstreet', 'linkedin'],
+    sourceLabels: { jobstreet: 'JobStreet', linkedin: 'LinkedIn' },
 
     listJobs: () =>
       fetchAll<Job>((from, to) =>

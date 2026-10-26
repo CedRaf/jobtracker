@@ -1,9 +1,21 @@
 import { createContext, useContext } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { DataApi, Job, JobKey, JobPatch, ScraperSettings } from './types'
+import type { DataApi, Job, JobKey, JobPatch, JobSource, ScraperSettings } from './types'
 import { jobKeyString } from './types'
 
 export const ApiContext = createContext<DataApi | null>(null)
+
+/** The job sites this deployment shows, in display order. */
+export const useSources = () => useApi().sources
+
+/**
+ * How to name a job's site. `multi` is false when the deployment shows a
+ * single site (the public demo): the UI then leaves the site name out.
+ */
+export function useSourceLabel() {
+  const api = useApi()
+  return { multi: api.sources.length > 1, label: (source: JobSource) => api.sourceLabels[source] }
+}
 
 export function useApi(): DataApi {
   const api = useContext(ApiContext)

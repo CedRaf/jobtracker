@@ -1,4 +1,5 @@
 // Made-up sample data for demo mode. No real listings or companies.
+// One job site only, with a generic name: the public demo doesn't show real site names.
 import type { FilteredJob, Job, JobStatus, ScrapeRun, StatusChange } from './types'
 
 const HOUR = 3_600_000
@@ -24,16 +25,16 @@ interface Seed {
 const SEEDS: Seed[] = [
   { title: 'Junior Full Stack Developer', company: 'Lumen Labs', location: 'Cebu City, Cebu', arrangements: ['Hybrid'], score: 17, skills: ['TypeScript', 'React', 'Node.js', 'PostgreSQL', 'Git'], flags: ['+fresh grads OK'], hoursAgo: 3, salary: '₱30,000 – ₱40,000 per month', email: 'careers@lumenlabs.example' },
   { title: 'Associate Software Engineer', company: 'Harbor Systems', location: 'Cebu, Central Visayas', arrangements: ['On-site'], score: 14, skills: ['C#', '.NET', 'SQL', 'Git'], flags: ['+will train'], hoursAgo: 5 },
-  { title: 'React Developer (Entry Level)', company: 'Northwind Digital', location: 'Taguig, Metro Manila', arrangements: ['Remote'], score: 15, skills: ['TypeScript', 'JavaScript', 'React', 'REST API'], missing: ['Next.js'], flags: ['+entry level'], hoursAgo: 8, source: 'linkedin' },
+  { title: 'React Developer (Entry Level)', company: 'Northwind Digital', location: 'Taguig, Metro Manila', arrangements: ['Remote'], score: 15, skills: ['TypeScript', 'JavaScript', 'React', 'REST API'], missing: ['Next.js'], flags: ['+entry level'], hoursAgo: 8 },
   { title: 'Junior Python Developer', company: 'Datasmith PH', location: 'Cebu City, Cebu', arrangements: ['Hybrid', 'Remote'], score: 11, skills: ['Python', 'pandas', 'SQL', 'Git'], missing: ['Django'], hoursAgo: 20, salary: '₱25,000 – ₱32,000 per month' },
-  { title: 'AI Engineer – Junior', company: 'Kestrel AI', location: 'Makati, Metro Manila', arrangements: ['Remote'], score: 13, skills: ['Python', 'AI/LLM', 'LangChain', 'Vector DB'], missing: ['AWS', 'Docker'], flags: ['!3+ yrs exp'], hoursAgo: 26, source: 'linkedin' },
+  { title: 'AI Engineer – Junior', company: 'Kestrel AI', location: 'Makati, Metro Manila', arrangements: ['Remote'], score: 13, skills: ['Python', 'AI/LLM', 'LangChain', 'Vector DB'], missing: ['AWS', 'Docker'], flags: ['!3+ yrs exp'], hoursAgo: 26 },
   { title: 'Software Engineer Trainee', company: 'Blue Coral Tech', location: 'Mandaue City, Cebu', arrangements: ['On-site'], score: 9, skills: ['Java', 'SQL', 'JavaScript'], flags: ['!training bond', '+fresh grads OK'], status: 'skip', hoursAgo: 30, notes: '2-year bond, not worth it.' },
   { title: '.NET Developer (Junior)', company: 'Meridian Health IT', location: 'Cebu City, Cebu', arrangements: [], score: 12, skills: ['C#', '.NET', 'SQL'], missing: ['Angular'], flags: ['!no work arrangement listed'], status: 'applied', hoursAgo: 52 },
   { title: 'Junior Web Developer', company: 'Pixel & Pine', location: 'Lapu-Lapu City, Cebu', arrangements: ['On-site'], score: 7, skills: ['JavaScript', 'MySQL'], missing: ['PHP', 'Laravel'], flags: ['!off-stack (PHP, Laravel)'], status: 'rejected', hoursAgo: 70 },
   { title: 'Full Stack Engineer', company: 'Tidewater Software', location: 'Pasig, Metro Manila', arrangements: ['Remote'], score: 19, skills: ['TypeScript', 'React', 'Node.js', 'Express', 'PostgreSQL', 'Prisma'], status: 'interview', hoursAgo: 96, email: 'hiring@tidewater.example', notes: 'Technical interview Thursday 2 PM.' },
   { title: 'Graduate Developer Program', company: 'Summit Fintech', location: 'Cebu City, Cebu', arrangements: ['Hybrid'], score: 10, skills: ['JavaScript', 'SQL', 'Git'], flags: ['+fresh grads OK', '+will train'], status: 'emailed', hoursAgo: 120, email: 'talent@summitfintech.example' },
-  { title: 'Associate Software Engineer – Platform Integrations and Internal Tooling (Hybrid)', company: 'Meridian Global Business Services Philippines, Inc.', location: 'Cebu IT Park, Cebu City, Central Visayas, Philippines', arrangements: ['Hybrid', 'On-site'], score: 10, skills: ['JavaScript', 'SQL', 'Git', 'REST API'], missing: ['PHP', 'Laravel', 'WordPress'], flags: ['!off-stack (PHP, Laravel, WordPress)', '!3+ yrs exp', '!training bond', '+fresh grads OK'], hoursAgo: 40, source: 'linkedin' },
-  { title: 'Junior React Native Developer', company: 'Orbit Apps', location: 'Cebu City, Cebu', arrangements: ['Remote'], score: 12, skills: ['React Native', 'TypeScript', 'REST API'], missing: ['Kotlin'], hoursAgo: 150, source: 'linkedin' },
+  { title: 'Associate Software Engineer – Platform Integrations and Internal Tooling (Hybrid)', company: 'Meridian Global Business Services Philippines, Inc.', location: 'Cebu IT Park, Cebu City, Central Visayas, Philippines', arrangements: ['Hybrid', 'On-site'], score: 10, skills: ['JavaScript', 'SQL', 'Git', 'REST API'], missing: ['PHP', 'Laravel', 'WordPress'], flags: ['!off-stack (PHP, Laravel, WordPress)', '!3+ yrs exp', '!training bond', '+fresh grads OK'], hoursAgo: 40 },
+  { title: 'Junior React Native Developer', company: 'Orbit Apps', location: 'Cebu City, Cebu', arrangements: ['Remote'], score: 12, skills: ['React Native', 'TypeScript', 'REST API'], missing: ['Kotlin'], hoursAgo: 150 },
   { title: 'Backend Developer (Node.js)', company: 'Cascade Logistics', location: 'Cebu City, Cebu', arrangements: ['On-site'], score: 11, skills: ['Node.js', 'Express', 'MySQL'], missing: ['Docker'], status: 'applied', hoursAgo: 200 },
 ]
 
@@ -68,7 +69,7 @@ function olderSeeds(): Seed[] {
       missing: OTHER_POOL.filter(() => rand() < 0.15),
       status: OLDER_STATUSES[i % OLDER_STATUSES.length],
       hoursAgo: 216 + Math.round(rand() * 500),
-      source: rand() < 0.35 ? 'linkedin' : 'jobstreet',
+      source: 'jobstreet',
     }
   })
 }
@@ -88,9 +89,9 @@ export function demoJobs(): Job[] {
       work_arrangements: s.arrangements,
       work_type: 'Full time',
       salary_text: s.salary ?? null,
-      seniority: source === 'linkedin' ? 'Entry level' : null,
+      seniority: null,
       posted_at: ago(s.hoursAgo + 4),
-      apply_type: source === 'linkedin' ? 'LinkedIn' : 'JobStreet',
+      apply_type: 'Job board',
       apply_link: null,
       match_score: s.score,
       matched_skills: s.skills,
@@ -149,7 +150,7 @@ export function demoFilteredJobs(): FilteredJob[] {
   return FILTERED_SEEDS.map(([title, company, location, arrangements, reason, hoursAgo], i) => {
     const external_id = String(80_000_000 + i * 6007)
     return {
-      source: i % 3 === 2 ? 'linkedin' : 'jobstreet',
+      source: 'jobstreet',
       external_id,
       title,
       company,
@@ -174,43 +175,38 @@ function random(seed: number) {
 }
 
 /**
- * Two weeks of runs on the real schedule (11:00 and 15:00, both sources),
- * newest first. One JobStreet run failed and one LinkedIn run was cancelled,
- * so the health panel has something to show.
+ * Two weeks of runs on the real schedule (11:00 and 15:00), newest first.
+ * One run failed and one was cancelled, so the health panel has something to show.
  */
 export function demoScrapeRuns(): ScrapeRun[] {
   const rand = random(7)
-  const runs: ScrapeRun[] = []
-  for (let i = 0; i < 28; i++) {
-    const startedHoursAgo = 3.1 + Math.floor(i / 2) * 24 + (i % 2) * 20
-    for (const source of ['jobstreet', 'linkedin'] as const) {
-      const start = startedHoursAgo - (source === 'linkedin' ? 0.05 : 0)
-      const failed = source === 'jobstreet' && i === 9
-      const interrupted = source === 'linkedin' && i === 16
-      const found = 110 + Math.round(rand() * 60)
-      const evaluated = Math.round(found * (0.15 + rand() * 0.2))
-      const kept = Math.round(evaluated * (0.1 + rand() * 0.15))
-      const expired = Math.round(rand() * 2)
-      runs.push({
-        source,
-        started_at: ago(start),
-        finished_at: interrupted ? null : ago(start - (source === 'linkedin' ? 0.1 : 0.05)),
-        found: failed || interrupted ? null : found,
-        evaluated: failed || interrupted ? null : evaluated,
-        kept: failed || interrupted ? null : kept,
-        filtered: failed || interrupted ? null : evaluated - kept - expired,
-        expired: failed || interrupted ? null : expired,
-        error: failed ? 'RuntimeError: Every search failed; JobStreet may be blocking requests or changed its API.' : null,
-        github_run_id: null,
-        settings_version: 1,
-      })
+  return Array.from({ length: 28 }, (_, i) => {
+    const start = 3.1 + Math.floor(i / 2) * 24 + (i % 2) * 20
+    const failed = i === 9
+    const interrupted = i === 16
+    const done = !failed && !interrupted
+    const found = 110 + Math.round(rand() * 60)
+    const evaluated = Math.round(found * (0.15 + rand() * 0.2))
+    const kept = Math.round(evaluated * (0.1 + rand() * 0.15))
+    const expired = Math.round(rand() * 2)
+    return {
+      source: 'jobstreet' as const,
+      started_at: ago(start),
+      finished_at: interrupted ? null : ago(start - 0.05),
+      found: done ? found : null,
+      evaluated: done ? evaluated : null,
+      kept: done ? kept : null,
+      filtered: done ? evaluated - kept - expired : null,
+      expired: done ? expired : null,
+      error: failed ? 'RuntimeError: Every search failed; the site may be blocking requests or changed its API.' : null,
+      github_run_id: null,
+      settings_version: 1,
     }
-  }
-  return runs
+  })
 }
 
-/** The latest run of each source. */
-export const demoLatestRuns = () => demoScrapeRuns().slice(0, 2)
+/** The latest run (the demo has one source). */
+export const demoLatestRuns = () => demoScrapeRuns().slice(0, 1)
 
 /** The status changes behind each demo job's current status, oldest first. */
 export function demoStatusHistory(jobs: Job[]): StatusChange[] {
