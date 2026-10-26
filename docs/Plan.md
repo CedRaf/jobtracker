@@ -267,7 +267,7 @@ The search terms and filter rules used to be hard-coded in `scraper/rules.py` an
 - [ ] Trim `Code.gs` down to the timer (`startScraper`, `installScraperTimers`, `githubRequest_`). Keep the sheet itself as an archive.
 
 ### Phase 5: Portfolio polish
-- [ ] **Optional: link scraper runs to their GitHub logs.** Set `VITE_GITHUB_REPO=CedRaf/jobtracker` in `web/.env.local` and in Vercel's environment variables. The "All runs" table on the Analytics page then gets a link per run. It's a frontend setting (not a GitHub secret), and the links only open for people with access to the repo.
+- [ ] **Optional: link scraper runs to their GitHub logs.** Set `VITE_GITHUB_REPO=CedRaf/jobtracker` in `web/.env.local` and in Vercel's environment variables. The "All runs" table on the Analytics page then gets a link per run. It's a frontend setting (not a GitHub secret). Once the repo is public, anyone can open those run logs.
 - [ ] **Public demo:** a second Vercel project from the same repo. Root Directory `web`, build command `npm run build:demo`, and **no** environment variables.
   - The demo app is ready. The data layer serves made-up jobs, and edits only change in-memory state.
   - It shows one job site only. `DataApi.sources` lists the sites a deployment shows: the demo API returns one, Supabase both. Source tabs, the board's source filter, chart series and scraper health all follow it, and with a single site the tabs and filter are hidden.
@@ -292,11 +292,16 @@ The search terms and filter rules used to be hard-coded in `scraper/rules.py` an
 
 ## Decisions for you
 - [ ] **Project name** (for the repo, README and resume)?
-- [ ] **Public repo:** make this repo public after the Phase 0 privacy pass, or start a fresh public repo and copy the code over? Fresh is safer, because git history still contains personal details and the old `Plan.md`.
-- [ ] **This `Plan.md`:** keep it private (out of the public repo) and write a clean `README.md` instead? Recommended.
-- [x] **LinkedIn scraper in the public repo:** decided 2026-10-26: keep it as a personal tool only. LinkedIn's User Agreement forbids scraping whatever the purpose (not just commercial use).
-  - Leave the LinkedIn scraper (`LinkedIn_Scraper.py`, `linkedin_api.py`) out of the public repo.
-  - The public demo shows JobStreet only: no LinkedIn tab, data or runs. Done: see "Public demo" in Phase 5.
-  - The private repo and your own dashboard keep LinkedIn as they are.
-- [ ] **Hosting:** Vercel or Cloudflare Pages? (Recommended: Vercel, since your portfolio is already there.)
+- [x] **Public repo:** decided 2026-10-26: make **this** repo public, with its full history.
+  - A filtered public copy (history rewritten with `git filter-repo` to drop this file and the LinkedIn scraper) was considered, then dropped as too much upkeep: it would need re-publishing after every change.
+  - So everything committed is public: all code, this `Plan.md` and its history, commit emails and GitHub Actions run logs.
+  - No real secrets or personal contact details were ever committed (checked 2026-10-26). Secrets live only in GitHub secrets, Vercel and gitignored local files.
+- [x] **This `Plan.md`:** it stays in the repo as the project's working notes. `README.md` is the public-facing introduction.
+- [x] **LinkedIn scraper:** decided 2026-10-26 and revised the same day: it **stays in the repo, for personal and educational use only.**
+  - LinkedIn's User Agreement forbids scraping whatever the purpose, not just commercial use.
+  - The scraper only reads logged-out, public job listings, twice a day with delays between requests, for one person's job search. Its results are never published or redistributed.
+  - It isn't offered as a feature or a product: `LinkedIn_Scraper.py` and `linkedin_api.py` say so at the top, and the README describes the project as aggregating job boards in general.
+  - The **public demo** still shows a single, generically named job board, with no LinkedIn tab, data or runs (see "Public demo" in Phase 5).
+  - Your own dashboard and scraper keep LinkedIn as they are.
+- [x] **Hosting:** Vercel. Two projects from this repo: your dashboard (with the Supabase variables) and the public demo (`npm run build:demo`, no variables).
 - [x] **Login method:** email + password (chosen in Phase 2; magic link or GitHub OAuth can be added later).

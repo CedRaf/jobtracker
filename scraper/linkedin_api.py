@@ -1,6 +1,8 @@
 """
 Thin client for LinkedIn's public (logged-out) job pages.
 
+Personal and educational use only: see the note at the top of LinkedIn_Scraper.py.
+
 - search(): one page of search results (the "see more jobs" endpoint the
   public search page calls while scrolling; 10 cards per page)
 - job_details(): description, criteria and whether applying goes off-site
