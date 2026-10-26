@@ -268,12 +268,16 @@ The search terms and filter rules used to be hard-coded in `scraper/rules.py` an
 
 ### Phase 5: Portfolio polish
 - [ ] **Optional: link scraper runs to their GitHub logs.** Set `VITE_GITHUB_REPO=CedRaf/jobtracker` in `web/.env.local` and in Vercel's environment variables. The "All runs" table on the Analytics page then gets a link per run. It's a frontend setting (not a GitHub secret), and the links only open for people with access to the repo.
-- [ ] **Public demo:** a second Vercel deployment with `VITE_DEMO=true`. The data layer serves fake jobs from a JSON fixture, and edits only change in-memory state.
-  - No real scraped listings or personal data are public, and the demo needs no Supabase project.
-- [ ] **README:**
-  - One-paragraph pitch, the architecture diagram, and screenshots/GIF of the feed, kanban and analytics
-  - Tech stack, how the rules engine works, and local setup
-  - The "Sheets prototype → Postgres with dual-writes" story
+- [ ] **Public demo:** a second Vercel project from the same repo. Root Directory `web`, build command `npm run build:demo`, and **no** environment variables.
+  - The demo app is ready. The data layer serves made-up jobs, and edits only change in-memory state.
+  - It shows one job site only. `DataApi.sources` lists the sites a deployment shows: the demo API returns one, Supabase both. Source tabs, the board's source filter, chart series and scraper health all follow it, and with a single site the tabs and filter are hidden.
+  - Site names come from `DataApi.sourceLabels` via `useSourceLabel()`. With a single site, the UI leaves the name out ("26 of 49 jobs", "Last run"), so the demo never names a real job board. Its one leftover label is the generic "Job board".
+  - Tests of the multi-site features use `web/src/test/twoSiteApi.ts`.
+  - To do: the Vercel deploy itself, then put the link in the README.
+- [x] **README** (`README.md`):
+  - Pitch, features, a Mermaid architecture diagram, engineering notes (the spreadsheet → Postgres migration, the regression-tested rules, demo mode through the data layer), the tech stack, screenshots, project structure, local setup and a note on scraping.
+  - Job-board names and personal details are left out.
+  - Screenshots in `docs/screenshots/` were taken headlessly from the demo, so they show no site names. A phone screenshot wasn't possible headlessly (Chrome won't go below ~500px wide).
 - [ ] **Resume bullets** (fill in real numbers from `scrape_runs`), for example:
   - "Built a job-aggregation platform that scrapes and scores ~N listings/week from JobStreet and LinkedIn with a configurable rules engine (Python, GitHub Actions)."
   - "Developed a React + TypeScript dashboard backed by Supabase Postgres with row-level security, featuring a kanban application tracker and funnel analytics."
@@ -290,6 +294,9 @@ The search terms and filter rules used to be hard-coded in `scraper/rules.py` an
 - [ ] **Project name** (for the repo, README and resume)?
 - [ ] **Public repo:** make this repo public after the Phase 0 privacy pass, or start a fresh public repo and copy the code over? Fresh is safer, because git history still contains personal details and the old `Plan.md`.
 - [ ] **This `Plan.md`:** keep it private (out of the public repo) and write a clean `README.md` instead? Recommended.
-- [ ] **LinkedIn scraper in the public repo:** LinkedIn's terms forbid scraping. Options: include it, label it as a personal/educational tool, or leave it out of the public version.
+- [x] **LinkedIn scraper in the public repo:** decided 2026-10-26: keep it as a personal tool only. LinkedIn's User Agreement forbids scraping whatever the purpose (not just commercial use).
+  - Leave the LinkedIn scraper (`LinkedIn_Scraper.py`, `linkedin_api.py`) out of the public repo.
+  - The public demo shows JobStreet only: no LinkedIn tab, data or runs. Done: see "Public demo" in Phase 5.
+  - The private repo and your own dashboard keep LinkedIn as they are.
 - [ ] **Hosting:** Vercel or Cloudflare Pages? (Recommended: Vercel, since your portfolio is already there.)
 - [x] **Login method:** email + password (chosen in Phase 2; magic link or GitHub OAuth can be added later).
