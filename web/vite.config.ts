@@ -8,5 +8,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // Page tests render real Ant Design forms in jsdom: 2–8 s locally and
+    // roughly twice that on CI runners, so the 5 s default makes them flaky.
+    testTimeout: 20_000,
   },
 })
