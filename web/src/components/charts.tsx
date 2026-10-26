@@ -4,7 +4,9 @@ import {
 } from 'recharts'
 import { Card, Empty, Segmented, Table, theme, type TableColumnsType } from 'antd'
 import dayjs from 'dayjs'
+import type { JobSource } from '../data/types'
 import type { DayCount } from '../lib/analytics'
+import { useSourceLabel } from '../data/hooks'
 import { useChartColors } from '../lib/chartColors'
 
 /** A titled card that switches between the chart and the same data as a table. */
@@ -66,8 +68,9 @@ function ChartTooltip({ active, payload, label, labelFormat }: {
 }
 
 /** Kept jobs per day, stacked by source. */
-export function DailyJobsChart({ data }: { data: DayCount[] }) {
+export function DailyJobsChart({ data, sources }: { data: DayCount[]; sources: JobSource[] }) {
   const c = useChartColors()
+  const { label } = useSourceLabel()
   const tick = { fill: c.text, fontSize: 12 }
   // Thin out date labels so they never collide.
   const every = Math.max(1, Math.ceil(data.length / 10))
@@ -80,12 +83,17 @@ export function DailyJobsChart({ data }: { data: DayCount[] }) {
         <YAxis allowDecimals={false} tick={tick} tickLine={false} axisLine={false} width={40} />
         <Tooltip cursor={{ fill: c.token.colorFillTertiary }}
           content={<ChartTooltip labelFormat={(d) => dayjs(d).format('ddd, MMM D')} />} />
-        <Legend iconType="square" iconSize={10}
-          formatter={(value: string) => <span style={{ color: c.token.colorText, fontSize: 12 }}>{value}</span>} />
-        <Bar isAnimationActive={false} dataKey="jobstreet" name="JobStreet" stackId="s" fill={c.sources.jobstreet} maxBarSize={24}
-          stroke={c.surface} strokeWidth={2} radius={[0, 0, 0, 0]} />
-        <Bar isAnimationActive={false} dataKey="linkedin" name="LinkedIn" stackId="s" fill={c.sources.linkedin} maxBarSize={24}
-          stroke={c.surface} strokeWidth={2} radius={[4, 4, 0, 0]} />
+        {/* A single series needs no legend: the card title names it. */}
+        {sources.length > 1 && (
+          <Legend iconType="square" iconSize={10}
+            formatter={(value: string) => <span style={{ color: c.token.colorText, fontSize: 12 }}>{value}</span>} />
+        )}
+        {sources.map((source, i) => (
+          // Stacked; only the top segment gets the rounded end.
+          <Bar key={source} isAnimationActive={false} dataKey={source} name={sources.length > 1 ? label(source) : 'Jobs'} stackId="s"
+            fill={c.sources[source]} maxBarSize={24} stroke={c.surface} strokeWidth={2}
+            radius={i === sources.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+        ))}
       </BarChart>
     </ResponsiveContainer>
   )

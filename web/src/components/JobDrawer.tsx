@@ -5,8 +5,8 @@ import {
 import { ExportOutlined, FormOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import type { Job, JobPatch } from '../data/types'
 import { jobKeyString } from '../data/types'
-import { useJobDescription, useUpdateJob } from '../data/hooks'
-import { dateTime, errorText, fromNow, sourceLabel } from '../lib/format'
+import { useJobDescription, useSourceLabel, useUpdateJob } from '../data/hooks'
+import { dateTime, errorText, fromNow } from '../lib/format'
 import { SHOW_MATCH_SCORE } from '../lib/settings'
 import { CompanyAvatar } from './CompanyAvatar'
 import { DraftEmailButton } from './DraftEmail'
@@ -129,6 +129,7 @@ function JobDetails({ job, onDirtyChange }: { job: Job; onDirtyChange: (dirty: b
     />
   )
   const entry = useEntryLevel()(job)
+  const site = useSourceLabel()
 
   return (
     <Flex vertical gap={20}>
@@ -140,7 +141,7 @@ function JobDetails({ job, onDirtyChange }: { job: Job; onDirtyChange: (dirty: b
             <EntryLevelTag level={entry} />
           </Flex>
           <Typography.Text type="secondary">
-            {job.location ?? 'No location'} · {sourceLabel(job.source)} · found {fromNow(job.first_seen)}
+            {job.location ?? 'No location'}{site.multi && ` · ${site.label(job.source)}`} · found {fromNow(job.first_seen)}
           </Typography.Text>
           {SHOW_MATCH_SCORE && <Typography.Text type="secondary"> · Match score {job.match_score}</Typography.Text>}
         </div>
