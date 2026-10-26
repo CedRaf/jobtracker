@@ -7,14 +7,14 @@ import {
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import type { ScrapeRun } from '../data/types'
-import { useFilteredJobs, useJobs, useScrapeRuns, useStatusHistory } from '../data/hooks'
+import { useFilteredJobs, useJobs, useScrapeRuns, useSourceLabel, useSources, useStatusHistory } from '../data/hooks'
 import { BarList, ChartCard, DailyJobsChart } from '../components/charts'
 import { ToneTag } from '../components/Tags'
 import {
   funnel, jobsPerDay, median, reasonCounts, responseDays, runState, seenWithin, skillDemand, staleSources,
   successRate, type DayCount, type FunnelStage, type RunState, type SkillCount,
 } from '../lib/analytics'
-import { dateTime, errorText, fromNow, sourceLabel } from '../lib/format'
+import { dateTime, errorText, fromNow } from '../lib/format'
 import { filteredHref } from '../lib/ruleLinks'
 
 const PERIODS = [
@@ -36,6 +36,8 @@ export function AnalyticsPage() {
   const navigate = useNavigate()
   const jobs = useJobs()
   const history = useStatusHistory()
+  const sources = useSources()
+  const site = useSourceLabel()
   const filtered = useFilteredJobs(days)
 
   const inPeriod = useMemo(() => seenWithin(jobs.data ?? [], days), [jobs.data, days])
@@ -99,14 +101,13 @@ export function AnalyticsPage() {
           <ChartCard<DayCount>
             title="New jobs per day"
             subtitle={days > 90 ? 'Last 90 days (kept jobs only)' : 'Kept jobs only'}
-            chart={<DailyJobsChart data={daily} />}
-            rows={[...daily].reverse().filter((d) => d.jobstreet + d.linkedin > 0)}
+            chart={<DailyJobsChart data={daily} sources={sources} />}
+            rows={[...daily].reverse().filter((d) => sources.some((s) => d[s] > 0))}
             rowKey="day"
             empty="No jobs in this period"
             columns={[
               { title: 'Day', dataIndex: 'day', render: (d: string) => dayjs(d).format('ddd, MMM D') },
-              { title: 'JobStreet', dataIndex: 'jobstreet', align: 'right' },
-              { title: 'LinkedIn', dataIndex: 'linkedin', align: 'right' },
+              ...sources.map((s) => ({ title: site.multi ? site.label(s) : 'Jobs', dataIndex: s, align: 'right' as const })),
             ]}
           />
 
@@ -203,13 +204,14 @@ const StateTag = ({ state }: { state: RunState }) => (
 
 const count = (n: number | null) => (n === null ? '—' : n)
 
-const runColumns: TableColumnsType<ScrapeRun> = [
+/** The runs table; the Source column only when there are several sites. */
+const runColumns = (site: ReturnType<typeof useSourceLabel>): TableColumnsType<ScrapeRun> => [
   {
     title: 'Started',
     dataIndex: 'started_at',
     render: (iso: string) => <Tooltip title={dateTime(iso)}>{dayjs(iso).format('MMM D, HH:mm')}</Tooltip>,
   },
-  { title: 'Source', dataIndex: 'source', render: sourceLabel },
+  ...(site.multi ? [{ title: 'Source', dataIndex: 'source', render: site.label }] : []),
   { title: 'Result', key: 'state', render: (_, run) => <StateTag state={runState(run)} /> },
   { title: 'Found', dataIndex: 'found', align: 'right', responsive: ['md'], render: count },
   { title: 'Checked', dataIndex: 'evaluated', align: 'right', responsive: ['md'], render: count },
@@ -240,8 +242,10 @@ function ScraperHealth() {
   const runs = useScrapeRuns(HEALTH_DAYS)
   const [showRuns, setShowRuns] = useState(false)
   const list = useMemo(() => runs.data ?? [], [runs.data])
-  const stale = staleSources(list)
-  const latest = (['jobstreet', 'linkedin'] as const).map((source) => ({
+  const sources = useSources()
+  const site = useSourceLabel()
+  const stale = staleSources(list, sources)
+  const latest = sources.map((source) => ({
     source, run: list.find((r) => r.source === source),
   }))
   const rate = successRate(list)
@@ -263,13 +267,13 @@ function ScraperHealth() {
         <Flex vertical gap={12}>
           {stale.length > 0 && (
             <Alert type="warning" showIcon icon={<WarningOutlined />}
-              title={`No ${stale.map(sourceLabel).join(' or ')} run in the last 24 hours`}
+              title={`No ${site.multi ? `${stale.map(site.label).join(' or ')} ` : ''}run in the last 24 hours`}
               description="The scraper should run at 11:00 and 15:00. Check the Apps Script timer and the GitHub Actions tab." />
           )}
           <Flex gap={24} wrap>
             {latest.map(({ source, run }) => (
               <Flex key={source} vertical gap={4} style={{ minWidth: 200 }}>
-                <Typography.Text type="secondary">{sourceLabel(source)} · last run</Typography.Text>
+                <Typography.Text type="secondary">{site.multi ? `${site.label(source)} · last run` : 'Last run'}</Typography.Text>
                 {run ? (
                   <Flex gap={8} align="center" wrap>
                     <StateTag state={runState(run)} />
@@ -292,7 +296,7 @@ function ScraperHealth() {
             </Flex>
           </Flex>
           {showRuns && (
-            <Table<ScrapeRun> rowKey={(r) => `${r.source}:${r.started_at}`} columns={runColumns} dataSource={list}
+            <Table<ScrapeRun> rowKey={(r) => `${r.source}:${r.started_at}`} columns={runColumns(site)} dataSource={list}
               size="small" pagination={{ pageSize: 10, hideOnSinglePage: true }} scroll={{ x: 'max-content' }} />
           )}
         </Flex>

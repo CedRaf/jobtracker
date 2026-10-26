@@ -5,10 +5,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { App as AntApp } from 'antd'
 import { ApiContext } from '../data/hooks'
 import { createDemoApi } from '../data/demoApi'
+import type { DataApi } from '../data/types'
+import { createTwoSiteApi } from '../test/twoSiteApi'
 import { JobsPage } from './JobsPage'
 
-function renderPage() {
-  const api = createDemoApi()
+function renderPage(api: DataApi = createDemoApi()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <ApiContext.Provider value={api}>
@@ -54,8 +55,15 @@ describe('JobsPage', () => {
     expect(screen.queryByText('Junior Web Developer')).not.toBeInTheDocument() // rejected
   })
 
-  it('shows one source per tab', async () => {
+  it('shows no site tabs when there is only one site (the public demo)', async () => {
     renderPage()
+    await screen.findByText('Junior Full Stack Developer')
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    expect(screen.getByText('AI Engineer – Junior')).toBeInTheDocument()
+  })
+
+  it('shows one source per tab', async () => {
+    renderPage(createTwoSiteApi())
     await screen.findByText('Junior Full Stack Developer')
     expect(screen.queryByText('AI Engineer – Junior')).not.toBeInTheDocument() // LinkedIn
 
@@ -114,7 +122,7 @@ describe('JobsPage', () => {
   })
 
   it('says when there is nothing left to review', async () => {
-    renderPage()
+    renderPage(createTwoSiteApi())
     await screen.findByText('Junior Full Stack Developer')
     await userEvent.click(screen.getByRole('tab', { name: /LinkedIn/ }))
     await screen.findByText('AI Engineer – Junior')

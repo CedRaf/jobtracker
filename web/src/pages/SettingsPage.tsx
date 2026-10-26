@@ -233,7 +233,7 @@ const MATCHING_HINT = 'Matching ignores case and works on whole words; spaces an
 function SearchTab() {
   return (
     <Flex vertical gap={8} style={{ maxWidth: 760 }}>
-      <Hint>Each keyword is searched on JobStreet and LinkedIn, in Cebu and (if switched on) as remote jobs anywhere.</Hint>
+      <Hint>Each keyword is searched on every job site, in Cebu and (if switched on) as remote jobs anywhere.</Hint>
       <Form.Item name={['search', 'keywords']} label="Search keywords">
         <WordsInput placeholder="e.g. junior react developer" aria-label="Search keywords" />
       </Form.Item>

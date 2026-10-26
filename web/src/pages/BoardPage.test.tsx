@@ -2,6 +2,7 @@ import { expect, it } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithApi } from '../test/renderWithApi'
+import { createTwoSiteApi } from '../test/twoSiteApi'
 import { BoardPage } from './BoardPage'
 
 const column = (name: RegExp) => screen.getByRole('listitem', { name })
@@ -17,8 +18,15 @@ it('puts each job in the column for its status, closed columns hidden by default
   expect(within(column(/^Skip:/)).getByText('Software Engineer Trainee')).toBeInTheDocument()
 })
 
-it('filters the board by source', async () => {
+it('has no source filter when there is only one site (the public demo)', async () => {
   renderWithApi(<BoardPage />)
+  await screen.findByText('Junior Full Stack Developer')
+  expect(screen.queryByRole('radiogroup', { name: 'Source' })).not.toBeInTheDocument()
+  expect(screen.queryByText('LinkedIn')).not.toBeInTheDocument()
+})
+
+it('filters the board by source', async () => {
+  renderWithApi(<BoardPage />, createTwoSiteApi())
   await screen.findByText('Junior Full Stack Developer')
   await userEvent.click(screen.getByText('LinkedIn'))
   expect(screen.queryByText('Junior Full Stack Developer')).not.toBeInTheDocument()

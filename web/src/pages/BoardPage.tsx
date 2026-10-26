@@ -6,12 +6,12 @@ import {
 import { Alert, Button, Flex, Input, Modal, Segmented, Skeleton, Switch, theme, Typography } from 'antd'
 import type { Job, JobSource, JobStatus } from '../data/types'
 import { jobKeyString } from '../data/types'
-import { useJobs, useUpdateJob } from '../data/hooks'
+import { useJobs, useSourceLabel, useSources, useUpdateJob } from '../data/hooks'
 import { CompanyAvatar } from '../components/CompanyAvatar'
 import { JobDrawer } from '../components/JobDrawer'
 import { StatusDot } from '../components/StatusControl'
 import { useChangeStatus } from '../components/useChangeStatus'
-import { errorText, fromNow, sourceLabel } from '../lib/format'
+import { errorText, fromNow } from '../lib/format'
 import { STATUS_META } from '../lib/status'
 import { useEntryLevel, type EntryLevel } from '../lib/entryLevel'
 import { EntryLevelTag } from '../components/Tags'
@@ -20,11 +20,6 @@ const OPEN_COLUMNS: JobStatus[] = ['new', 'applied', 'emailed', 'interview', 'of
 const CLOSED_COLUMNS: JobStatus[] = ['rejected', 'skip']
 
 type SourceFilter = JobSource | 'all'
-const SOURCE_OPTIONS = [
-  { label: 'All', value: 'all' },
-  { label: 'JobStreet', value: 'jobstreet' },
-  { label: 'LinkedIn', value: 'linkedin' },
-]
 
 /** Most recently moved (or found) first. */
 const byRecent = (a: Job, b: Job) =>
@@ -34,6 +29,8 @@ export function BoardPage() {
   const jobs = useJobs()
   const change = useChangeStatus()
   const update = useUpdateJob()
+  const sources = useSources()
+  const site = useSourceLabel()
   const [source, setSource] = useState<SourceFilter>('all')
   const [showClosed, setShowClosed] = useState(false)
   const [dragging, setDragging] = useState<Job | null>(null)
@@ -96,8 +93,10 @@ export function BoardPage() {
           </Typography.Text>
         </div>
         <Flex gap={16} align="center" wrap>
-          <Segmented options={SOURCE_OPTIONS} value={source} onChange={(v) => setSource(v as SourceFilter)}
-            aria-label="Source" />
+          {sources.length > 1 && (
+            <Segmented value={source} onChange={(v) => setSource(v as SourceFilter)} aria-label="Source"
+              options={[{ label: 'All', value: 'all' }, ...sources.map((s) => ({ label: site.label(s), value: s }))]} />
+          )}
           <Flex gap={8} align="center">
             <Switch checked={showClosed} onChange={setShowClosed} id="show-closed" size="small" />
             <label htmlFor="show-closed">Show rejected and skipped</label>
@@ -214,6 +213,7 @@ function DraggableCard({ job, entry, onOpen }: { job: Job; entry: EntryLevel; on
 
 function Card({ job, entry, overlay }: { job: Job; entry: EntryLevel; overlay?: boolean }) {
   const { token } = theme.useToken()
+  const site = useSourceLabel()
   return (
     <div
       className="board-card"
@@ -233,7 +233,7 @@ function Card({ job, entry, overlay }: { job: Job; entry: EntryLevel; overlay?: 
             {job.company ?? 'Unknown company'} · {job.location ?? 'No location'}
           </Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {sourceLabel(job.source)} · {fromNow(job.status_changed_at ?? job.first_seen)}
+            {site.multi && `${site.label(job.source)} · `}{fromNow(job.status_changed_at ?? job.first_seen)}
           </Typography.Text>
           {entry && <div style={{ marginTop: 2 }}><EntryLevelTag level={entry} /></div>}
         </Flex>

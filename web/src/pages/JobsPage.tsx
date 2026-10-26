@@ -4,7 +4,7 @@ import type { TableColumnsType, TableProps } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import type { Job, JobSource, ScrapeRun } from '../data/types'
 import { jobKeyString } from '../data/types'
-import { useJobs, useLatestScrapeRuns } from '../data/hooks'
+import { useJobs, useLatestScrapeRuns, useSourceLabel, useSources } from '../data/hooks'
 import { CompanyAvatar } from '../components/CompanyAvatar'
 import { JobDrawer } from '../components/JobDrawer'
 import { JobFiltersBar } from '../components/JobFiltersBar'
@@ -13,25 +13,24 @@ import { StatusCell } from '../components/StatusControl'
 import { EntryLevelTag, FlagTags, ToneTag } from '../components/Tags'
 import { applyFilters, DEFAULT_FILTERS, isNewSince, type JobFilters } from '../lib/filters'
 import { flagTone } from '../lib/flags'
-import { dateTime, dayTime, errorText, fromNow, sourceLabel } from '../lib/format'
+import { dateTime, dayTime, errorText, fromNow } from '../lib/format'
 import { entryRank, useEntryLevel, type EntryLevel } from '../lib/entryLevel'
 import { LastVisitContext } from '../lib/lastVisit'
 import { SHOW_MATCH_SCORE } from '../lib/settings'
 
-const SOURCES: JobSource[] = ['jobstreet', 'linkedin']
 const TAB_KEY = 'jobtracker.sourceTab'
 const ENTRY_FIRST_KEY = 'jobtracker.entryLevelFirst'
 
 type SortOrder = 'ascend' | 'descend' | null
 
-function initialSource(): JobSource {
+function initialSource(sources: JobSource[]): JobSource {
   try {
     const saved = localStorage.getItem(TAB_KEY)
-    if (saved === 'jobstreet' || saved === 'linkedin') return saved
+    if (sources.includes(saved as JobSource)) return saved as JobSource
   } catch {
     // storage unavailable: use the default
   }
-  return 'jobstreet'
+  return sources[0]
 }
 
 /** Entry-level jobs sort first unless turned off (remembered per browser). */
@@ -50,7 +49,8 @@ export function JobsPage() {
   const runs = useLatestScrapeRuns()
   const lastVisit = useContext(LastVisitContext)
   const screens = Grid.useBreakpoint()
-  const [source, setSource] = useState<JobSource>(initialSource)
+  const sources = useSources()
+  const [source, setSource] = useState<JobSource>(() => initialSource(sources))
   const [filters, setFilters] = useState<JobFilters>(DEFAULT_FILTERS)
   const [sortOrder, setSortOrder] = useState<SortOrder>('descend')
   const [entryFirst, setEntryFirst] = useState(initialEntryFirst)
@@ -110,11 +110,13 @@ export function JobsPage() {
             : sameStatuses(filters.statuses, ['offer']) ? 'offer'
               : null
 
-  const label = sourceLabel(source)
+  const site = useSourceLabel()
+  // "JobStreet jobs" with several sites; plain "jobs" with one (the demo).
+  const jobsLabel = site.multi ? `${site.label(source)} jobs` : 'jobs'
   const empty: ReactNode = jobs.isPending ? ' '
     : jobs.isError ? <Empty description="Jobs couldn't be loaded." />
-      : inTab.length === 0 ? <Empty description={`No ${label} jobs yet. They'll appear after the next scrape.`} />
-        : activeStat === 'to-review' ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`You're caught up: nothing left to review on ${label}.`} />
+      : inTab.length === 0 ? <Empty description={`No ${jobsLabel} yet. They'll appear after the next scrape.`} />
+        : activeStat === 'to-review' ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`You're caught up: nothing left to review${site.multi ? ` on ${site.label(source)}` : ''}.`} />
           : (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No jobs match these filters.">
               <Button onClick={() => changeFilters(DEFAULT_FILTERS)}>Reset filters</Button>
@@ -140,25 +142,26 @@ export function JobsPage() {
           action={<Button size="small" onClick={() => jobs.refetch()}>Try again</Button>} />
       )}
 
-      <Tabs
+      {/* One tab per job site; a single-site deployment (the demo) needs none. */}
+      {sources.length > 1 && <Tabs
         activeKey={source}
         onChange={(key) => changeSource(key as JobSource)}
         tabBarStyle={{ marginBottom: 0 }}
-        items={SOURCES.map((s) => {
+        items={sources.map((s) => {
           const fromSource = all.filter((j) => j.source === s)
           const fresh = fromSource.filter((j) => isNewSince(j, lastVisit)).length
           return {
             key: s,
             label: (
               <Flex gap={8} align="center">
-                {sourceLabel(s)}
+                {site.label(s)}
                 <span className="tabular" style={{ opacity: 0.8 }}>{fromSource.length}</span>
                 {fresh > 0 && <ToneTag color="cyan">{fresh} new</ToneTag>}
               </Flex>
             ),
           }
         })}
-      />
+      />}
 
       <StatCards
         jobs={inTab}
@@ -177,7 +180,7 @@ export function JobsPage() {
         <JobFiltersBar jobs={inTab} filters={filters} onChange={changeFilters} />
         <Flex justify="space-between" align="center" wrap gap={8}>
           <Typography.Text type="secondary" className="tabular" aria-live="polite">
-            {shown.length} of {inTab.length} {label} jobs
+            {shown.length} of {inTab.length} {jobsLabel}
           </Typography.Text>
           <Flex gap={8} align="center">
             <Switch size="small" id="entry-first" checked={entryFirst} onChange={changeEntryFirst} />

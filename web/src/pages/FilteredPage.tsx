@@ -5,8 +5,8 @@ import { EditOutlined, ExportOutlined } from '@ant-design/icons'
 import type { TableColumnsType } from 'antd'
 import type { FilteredJob } from '../data/types'
 import { jobKeyString } from '../data/types'
-import { useFilteredJobs, useSettingsVersions } from '../data/hooks'
-import { dateTime, errorText, fromNow, sourceLabel } from '../lib/format'
+import { useFilteredJobs, useSettingsVersions, useSourceLabel } from '../data/hooks'
+import { dateTime, errorText, fromNow } from '../lib/format'
 import { groupByReason, reasonDetail } from '../lib/reasons'
 import { ruleLocation, rulesHref } from '../lib/ruleLinks'
 
@@ -33,7 +33,10 @@ const JobCell = ({ job }: { job: FilteredJob }) => (
       </Flex>
 )
 
-const columns: TableColumnsType<FilteredJob> = [
+type Site = ReturnType<typeof useSourceLabel>
+
+/** The Source column only when there are several sites. */
+const columns = (site: Site): TableColumnsType<FilteredJob> => [
   { title: 'Job', key: 'job', render: (_, job) => <JobCell job={job} /> },
   { title: 'Matched text', dataIndex: 'reason', render: matched },
   {
@@ -42,12 +45,12 @@ const columns: TableColumnsType<FilteredJob> = [
     responsive: ['md'],
     render: (arrangements: string[]) => arrangements.join(', ') || '—',
   },
-  {
+  ...(site.multi ? [{
     title: 'Source',
     dataIndex: 'source',
-    responsive: ['md'],
-    render: (source: FilteredJob['source']) => sourceLabel(source),
-  },
+    responsive: ['md' as const],
+    render: (source: FilteredJob['source']) => site.label(source),
+  }] : []),
   {
     title: 'Seen',
     dataIndex: 'first_seen',
@@ -56,7 +59,7 @@ const columns: TableColumnsType<FilteredJob> = [
 ]
 
 // Phones: one stacked column, so nothing scrolls sideways inside the accordion.
-const phoneColumns: TableColumnsType<FilteredJob> = [
+const phoneColumns = (site: Site): TableColumnsType<FilteredJob> => [
   {
     title: 'Job',
     key: 'job',
@@ -65,7 +68,7 @@ const phoneColumns: TableColumnsType<FilteredJob> = [
         <JobCell job={job} />
         <Typography.Text type="secondary" style={{ fontSize: 13 }}>
           {reasonDetail(job.reason) && <>Matched “{reasonDetail(job.reason)}” · </>}
-          {sourceLabel(job.source)} · {fromNow(job.first_seen)}
+          {site.multi && `${site.label(job.source)} · `}{fromNow(job.first_seen)}
         </Typography.Text>
       </Flex>
     ),
@@ -81,6 +84,7 @@ export function FilteredPage() {
   const filtered = useFilteredJobs(days)
   const settings = useSettingsVersions()
   const screens = Grid.useBreakpoint()
+  const site = useSourceLabel()
   const groups = useMemo(() => groupByReason(filtered.data ?? []), [filtered.data])
   // The linked rule's group, else the biggest: the one most worth a look.
   const openKey = groups.some((g) => g.reason === linkedRule) ? linkedRule! : groups[0]?.reason
@@ -130,7 +134,7 @@ export function FilteredPage() {
                 </Link>
               ),
               children: (
-                <Table<FilteredJob> rowKey={jobKeyString} columns={screens.md ? columns : phoneColumns}
+                <Table<FilteredJob> rowKey={jobKeyString} columns={screens.md ? columns(site) : phoneColumns(site)}
                   showHeader={screens.md} dataSource={group.jobs} size="small"
                   pagination={{ pageSize: 20, hideOnSinglePage: true }} />
               ),
