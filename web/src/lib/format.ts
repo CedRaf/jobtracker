@@ -9,7 +9,6 @@ export const fromNow = (iso: string | null) => (iso ? dayjs(iso).fromNow() : 'â€
 /** "Oct 22, 2026 11:24" */
 export const dateTime = (iso: string | null) => (iso ? dayjs(iso).format('MMM D, YYYY HH:mm') : 'â€”')
 
-export const sourceLabel = (source: string) => (source === 'linkedin' ? 'LinkedIn' : 'JobStreet')
 
 /** "today 11:04", "yesterday 15:02", "Oct 20 11:04" */
 export function dayTime(iso: string | null, now = dayjs()) {

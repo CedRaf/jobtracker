@@ -104,7 +104,7 @@ describe('scraper health', () => {
   })
 
   it('flags sources with no run in the last 24 hours', () => {
-    expect(staleSources([run({}), run({ source: 'linkedin', started_at: '2026-10-20T03:00:00Z' })], now))
+    expect(staleSources([run({}), run({ source: 'linkedin', started_at: '2026-10-20T03:00:00Z' })], ['jobstreet', 'linkedin'], now))
       .toEqual(['linkedin'])
   })
 

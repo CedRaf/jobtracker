@@ -148,8 +148,8 @@ export function runState(run: Pick<ScrapeRun, 'finished_at' | 'error' | 'started
 }
 
 /** Sources with no run started in the last 24 hours (the scraper runs twice a day). */
-export function staleSources(runs: ScrapeRun[], now = Date.now()): JobSource[] {
-  return (['jobstreet', 'linkedin'] as const).filter(
+export function staleSources(runs: ScrapeRun[], sources: JobSource[], now = Date.now()): JobSource[] {
+  return sources.filter(
     (source) => !runs.some((r) => r.source === source && now - Date.parse(r.started_at) < DAY),
   )
 }
