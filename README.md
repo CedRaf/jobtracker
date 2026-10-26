@@ -2,7 +2,7 @@
 
 A personal job-search pipeline: a scraper that collects listings from several job boards twice a day, filters and scores them against my own rules, and a dashboard where I review new listings, track applications and tune the rules.
 
-**Live demo:** _link coming soon_ (sample data, no login; everything you change resets on reload)
+**[Live demo →](https://jobtracker-live-demo.vercel.app/)** (sample data, no login; everything you change resets on reload)
 
 ![Jobs page](docs/screenshots/jobs-light.png)
 

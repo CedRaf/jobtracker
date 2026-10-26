@@ -268,12 +268,12 @@ The search terms and filter rules used to be hard-coded in `scraper/rules.py` an
 
 ### Phase 5: Portfolio polish
 - [ ] **Optional: link scraper runs to their GitHub logs.** Set `VITE_GITHUB_REPO=CedRaf/jobtracker` in `web/.env.local` and in Vercel's environment variables. The "All runs" table on the Analytics page then gets a link per run. It's a frontend setting (not a GitHub secret). Once the repo is public, anyone can open those run logs.
-- [ ] **Public demo:** a second Vercel project from the same repo. Root Directory `web`, build command `npm run build:demo`, and **no** environment variables.
+- [x] **Public demo:** live at https://jobtracker-live-demo.vercel.app/ (linked from the README). A second Vercel project from the same repo. Root Directory `web`, build command `npm run build:demo`, and **no** environment variables.
   - The demo app is ready. The data layer serves made-up jobs, and edits only change in-memory state.
   - It shows one job site only. `DataApi.sources` lists the sites a deployment shows: the demo API returns one, Supabase both. Source tabs, the board's source filter, chart series and scraper health all follow it, and with a single site the tabs and filter are hidden.
   - Site names come from `DataApi.sourceLabels` via `useSourceLabel()`. With a single site, the UI leaves the name out ("26 of 49 jobs", "Last run"), so the demo never names a real job board. Its one leftover label is the generic "Job board".
   - Tests of the multi-site features use `web/src/test/twoSiteApi.ts`.
-  - To do: the Vercel deploy itself, then put the link in the README.
+  - Deployed 2026-10-26. Checked: no login, the Demo tag shows, no site names appear, and direct links like `/analytics` load.
 - [x] **README** (`README.md`):
   - Pitch, features, a Mermaid architecture diagram, engineering notes (the spreadsheet → Postgres migration, the regression-tested rules, demo mode through the data layer), the tech stack, screenshots, project structure, local setup and a note on scraping.
   - Job-board names and personal details are left out.
