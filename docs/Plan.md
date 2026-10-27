@@ -261,6 +261,13 @@ The search terms and filter rules used to be hard-coded in `scraper/rules.py` an
 - **Order matters when deploying:** push the migration (`npx supabase db push`) before using the new dashboard. The Analytics page now reads `scrape_runs.settings_version`, which doesn't exist until the migration runs. The scraper copes either way.
 
 ### Phase 4: Cutover
+- [x] **Found during the trial (2026-10-27): LinkedIn rate-limiting.** A run was cancelled at the 45-minute job limit. LinkedIn answered HTTP 429 eleven times, and each 429 cost 2.5 minutes of retries (15 + 45 + 90 s), so the searches alone took 39 minutes and nothing was saved. Fixed:
+  - `linkedin_api.py`: one retry after a 429, waiting LinkedIn's `Retry-After` (kept between 5 and 60 s, else 30 s). A second 429 raises `RateLimited`.
+  - `LinkedIn_Scraper.py`: on `RateLimited`, it stops requesting for the rest of the run and sends what it has. A **time budget** (20 min) covers the searches and the detail checks; when it runs out, the run wraps up cleanly. Jobs it didn't get to aren't marked as seen, so the next run checks them. A run blocked before any search returns results counts as failed, so the health panel shows it.
+  - Fewer and slower requests: 3 pages per search (was 6) and about 5 s between requests (was 2). These are configurable in `config.json` under `"linkedin"`.
+  - `scraper.yml`: the LinkedIn step has its own 30-minute limit, so it can never use up the whole job.
+  - Tests: `scraper/tests/test_linkedin.py`.
+  - LinkedIn rate-limits shared cloud IPs (like GitHub's) much more than home connections, so some runs may still get partial LinkedIn results. JobStreet is unaffected because it runs first.
 - [ ] Use the dashboard daily for 1–2 weeks while dual-writing.
 - [ ] Remove `"sheet"` from `outputs`, keeping the code so it's a one-line rollback.
 - [ ] Replace the Actions-cache `seen_ids.json` with a database lookup of known ids. This removes the cache steps from `scraper.yml`.

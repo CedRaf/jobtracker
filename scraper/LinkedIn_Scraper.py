@@ -18,7 +18,9 @@ Usage:
 Log: logs/linkedin.log
 """
 
+import random
 import sys
+import time
 from datetime import datetime, timedelta
 
 import requests
@@ -26,10 +28,43 @@ import requests
 import linkedin_api as api
 import rules
 import scraper
-from scraper import MANILA, ROOT, filtered_record, log, pause, repost_key
+from scraper import MANILA, ROOT, filtered_record, log, repost_key
 
 SEEN_FILE = ROOT / "data" / "linkedin_seen_ids.json"
 LOG_FILE = ROOT / "logs" / "linkedin.log"
+
+# config.json "linkedin" overrides these. LinkedIn rate-limits logged-out
+# requests from shared cloud IPs quickly, so it gets fewer pages, slower
+# requests and a time budget: when it runs out, the run wraps up and sends
+# what it has; jobs it didn't get to aren't marked as seen, so the next run
+# checks them.
+LINKEDIN_DEFAULTS = {"max_pages_per_search": 3, "delay_seconds": 5, "time_budget_minutes": 20}
+
+
+def linkedin_settings(cfg):
+    return {**LINKEDIN_DEFAULTS, **cfg.get("linkedin", {})}
+
+
+def pause(cfg):
+    time.sleep(linkedin_settings(cfg)["delay_seconds"] + random.uniform(0, 1))
+
+
+class Budget:
+    """A deadline shared by the searches and the job-details checks."""
+
+    def __init__(self, minutes, clock=time.monotonic):
+        self.clock = clock
+        self.deadline = clock() + minutes * 60
+
+    def spent(self):
+        return self.clock() >= self.deadline
+
+
+def run_budget(cfg):
+    """This run's budget: started by collect(), shared with evaluate_jobs() through cfg."""
+    if "_linkedin_budget" not in cfg:
+        cfg["_linkedin_budget"] = Budget(linkedin_settings(cfg)["time_budget_minutes"])
+    return cfg["_linkedin_budget"]
 
 
 def collect(session, cfg):
@@ -46,16 +81,24 @@ def collect(session, cfg):
     days = cfg.get("listed_within_days")
     # Safety net in case LinkedIn ever ignores the date filter (cards only have a date).
     oldest = (datetime.now(MANILA) - timedelta(days=days)).date().isoformat() if days else None
-    # Same number of results per search as JobStreet (its pages are 30, LinkedIn's 10).
-    max_pages = -(-cfg["max_pages_per_search"] * scraper.PAGE_SIZE // api.PAGE_SIZE)
+    max_pages = linkedin_settings(cfg)["max_pages_per_search"]
+    budget = run_budget(cfg)
 
-    jobs, failures, too_old = {}, 0, 0
+    jobs, failures, too_old, stopped = {}, 0, 0, None
     for keyword, label, opts in searches:
+        if stopped:
+            break
         found = 0
         for page in range(1, max_pages + 1):
+            if budget.spent():
+                stopped = "the time budget ran out"
+                break
             try:
                 results = api.search(session, keyword, page, sort=cfg["sort"],
                                      listed_within_days=days, **opts)
+            except api.RateLimited:
+                stopped = "LinkedIn is rate-limiting requests"
+                break
             except (api.LinkedInError, requests.RequestException) as e:
                 log.warning("Search '%s' page %d failed: %s", label, page, e)
                 failures += 1
@@ -79,6 +122,10 @@ def collect(session, cfg):
                 break
         log.info("Search '%s': %d results", label, found)
 
+    if stopped:
+        log.warning("Stopped searching early: %s (%d jobs found so far)", stopped, len(jobs))
+        if not jobs:
+            raise RuntimeError(f"No LinkedIn results this run: {stopped} before any search returned jobs.")
     if too_old:
         log.info("Skipped %d results listed more than %d days ago", too_old, days)
     if searches and failures >= len(searches):
@@ -95,6 +142,7 @@ def evaluate_jobs(session, cfg, candidates, seen):
     failures_in_a_row = 0
     posted_keys = {k for k in seen if k.startswith("tc:")}
     min_score = cfg.get("min_match_score", 0)
+    budget = run_budget(cfg)
     for n, job in enumerate(candidates, 1):
         key = repost_key(job)
         if key in posted_keys:
@@ -105,9 +153,16 @@ def evaluate_jobs(session, cfg, candidates, seen):
             filtered.append(filtered_record(job, reason))
             continue
 
+        if budget.spent():
+            log.warning("Time budget used up; %d jobs left for the next run", len(candidates) - n + 1)
+            break
         try:
             details = api.job_details(session, job["id"])
             failures_in_a_row = 0
+        except api.RateLimited:
+            log.warning("LinkedIn is rate-limiting requests; %d jobs left for the next run",
+                        len(candidates) - n + 1)
+            break
         except (api.LinkedInError, requests.RequestException) as e:
             log.warning("Details for %s failed: %s", job["id"], e)
             details = None

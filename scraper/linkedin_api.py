@@ -26,8 +26,12 @@ PAGE_SIZE = 10
 CEBU = ("Cebu, Central Visayas, Philippines", "105344578")
 PHILIPPINES = ("Philippines", "103121230")
 
-# Waits (seconds) before retrying a rate-limited (HTTP 429) request.
-RETRY_WAITS = [15, 45, 90]
+# A rate-limited (HTTP 429) request is retried once, after LinkedIn's
+# Retry-After hint (clamped) or RETRY_WAIT seconds. Retrying harder only keeps
+# the block going, so a second 429 raises RateLimited and the scraper stops
+# asking for the rest of the run.
+RETRY_WAIT = 30
+RETRY_WAIT_RANGE = (5, 60)
 
 HEADERS = {
     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -43,20 +47,32 @@ class LinkedInError(Exception):
     pass
 
 
+class RateLimited(LinkedInError):
+    """LinkedIn keeps answering HTTP 429: stop sending requests for this run."""
+
+
 def new_session() -> requests.Session:
     session = requests.Session()
     session.headers.update(HEADERS)
     return session
 
 
+def _retry_wait(resp):
+    """Seconds to wait after a 429: Retry-After if LinkedIn sends one, kept within RETRY_WAIT_RANGE."""
+    low, high = RETRY_WAIT_RANGE
+    try:
+        return min(max(int(resp.headers.get("Retry-After", "")), low), high)
+    except ValueError:
+        return RETRY_WAIT
+
+
 def _get(session, url, params=None):
-    for wait in RETRY_WAITS + [None]:
-        resp = session.get(url, params=params, timeout=30)
-        if resp.status_code != 429 or wait is None:
-            break
-        time.sleep(wait)
+    resp = session.get(url, params=params, timeout=30)
     if resp.status_code == 429:
-        raise LinkedInError("HTTP 429: rate limited by LinkedIn")
+        time.sleep(_retry_wait(resp))
+        resp = session.get(url, params=params, timeout=30)
+    if resp.status_code == 429:
+        raise RateLimited("HTTP 429: rate limited by LinkedIn")
     if resp.status_code != 200:
         raise LinkedInError(f"HTTP {resp.status_code}: {resp.text[:300]}")
     resp.encoding = "utf-8"

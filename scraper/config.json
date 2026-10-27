@@ -6,5 +6,10 @@
   "outputs": [
     "sheet",
     "supabase"
-  ]
+  ],
+  "linkedin": {
+    "max_pages_per_search": 3,
+    "delay_seconds": 5,
+    "time_budget_minutes": 20
+  }
 }

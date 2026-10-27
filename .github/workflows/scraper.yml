@@ -64,6 +64,10 @@ jobs:
       # Same settings and timing as JobStreet; runs even if JobStreet failed.
       - name: Run LinkedIn scraper
         if: ${{ !cancelled() }}
+        # The scraper stops itself after its time budget (config.json
+        # "linkedin", 20 min); this is the backstop, so a stuck LinkedIn step
+        # can't use up the whole job and stop the seen-ID caches being saved.
+        timeout-minutes: 30
         env:
           SHEET_WEBAPP_URL: ${{ secrets.SHEET_WEBAPP_URL }}
           SHEET_TOKEN: ${{ secrets.SHEET_TOKEN }}
