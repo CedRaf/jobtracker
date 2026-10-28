@@ -69,6 +69,31 @@ it('asks before leaving the page with unsaved edits', async () => {
   expect((await screen.findAllByText('Discard unsaved rule changes?'))[0]).toBeInTheDocument()
 })
 
+it('treats a saved version as unchanged even when its keys come back reordered', async () => {
+  // Supabase stores settings as jsonb, which re-sorts object keys; the demo API keeps them.
+  const reorder = (value: unknown): unknown =>
+    Array.isArray(value) ? value.map(reorder)
+      : value && typeof value === 'object'
+        ? Object.fromEntries(Object.entries(value).reverse().map(([k, v]) => [k, reorder(v)]))
+        : value
+  const api = createDemoApi()
+  const [first] = await api.listSettingsVersions()
+  await api.saveSettings(reorder(first.settings) as typeof first.settings, null)
+  renderWithApi(<><Link to="/jobs">Go to jobs</Link><SettingsPage /></>, api)
+
+  expect(await screen.findByText(/^Version 2, saved/)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Save as new version/ })).not.toBeInTheDocument()
+
+  // After saving an edit, nothing is left unsaved and leaving doesn't ask.
+  await userEvent.clear(daysInput())
+  await userEvent.type(daysInput(), '7')
+  await userEvent.click(screen.getByRole('button', { name: /Save as new version/ }))
+  expect(await screen.findByText(/^Version 3, saved/)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Save as new version/ })).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('link', { name: 'Go to jobs' }))
+  expect(screen.queryByText('Discard unsaved rule changes?')).not.toBeInTheDocument()
+}, 20_000)
+
 it('opens the tab named in the link and shows what each title rule dropped', async () => {
   renderWithApi(<SettingsPage />, undefined, '/rules?tab=titles&rule=seniority%20title')
   expect(await screen.findByRole('tab', { name: 'Title rules', selected: true })).toBeInTheDocument()

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS } from '../data/defaultSettings'
 import type { ScraperSettings } from '../data/types'
-import { changedSections, cleanWords, normalizeSettings, settingsProblems } from './scraperSettings'
+import { changedSections, cleanWords, normalizeSettings, sameValue, settingsProblems } from './scraperSettings'
 
 const withChanges = (change: (s: ScraperSettings) => void) => {
   const copy = structuredClone(DEFAULT_SETTINGS)
@@ -50,4 +50,20 @@ it('changedSections lists what differs', () => {
     s.previous_employers = ['Acme']
   })
   expect(changedSections(DEFAULT_SETTINGS, after)).toEqual(['search', 'previous employers'])
+})
+
+it('sameValue ignores key order but not values', () => {
+  expect(sameValue({ a: 1, b: { c: [1, 2] } }, { b: { c: [1, 2] }, a: 1 })).toBe(true)
+  expect(sameValue({ a: 1 }, { a: 2 })).toBe(false)
+  expect(sameValue({ a: 1 }, { a: 1, b: 2 })).toBe(false)
+  expect(sameValue([1, 2], [2, 1])).toBe(false)
+  expect(sameValue({ a: null }, { a: undefined })).toBe(false)
+})
+
+it('changedSections sees no change when only key order differs (as jsonb returns it)', () => {
+  const reordered = withChanges((s) => {
+    s.search = Object.fromEntries(Object.entries(s.search).reverse()) as ScraperSettings['search']
+    s.checks = Object.fromEntries(Object.entries(s.checks).reverse()) as ScraperSettings['checks']
+  })
+  expect(changedSections(DEFAULT_SETTINGS, reordered)).toEqual([])
 })

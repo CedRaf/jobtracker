@@ -285,6 +285,11 @@ The search terms and filter rules used to be hard-coded in `scraper/rules.py` an
   - Pitch, features, a Mermaid architecture diagram, engineering notes (the spreadsheet → Postgres migration, the regression-tested rules, demo mode through the data layer), the tech stack, screenshots, project structure, local setup and a note on scraping.
   - Job-board names and personal details are left out.
   - Screenshots in `docs/screenshots/` were taken headlessly from the demo, so they show no site names. A phone screenshot wasn't possible headlessly (Chrome won't go below ~500px wide).
+- [x] **Faster repeat visits (2026-10-28):** the React Query cache is saved to localStorage (`web/src/data/queryCache.ts`), so a reload shows the last data at once and refetches in the background.
+  - Measured before: a cold load waited about 0.86s for data, because the `is_app_user` check (~216ms) ran before the jobs request (~436ms). The cached access check now lets every request start together.
+  - Job descriptions aren't saved, to keep it small (about 210 KB with the jobs, latest runs and rules). Saved data older than 7 days is ignored. Bump `CACHE_VERSION` when the shape of cached data changes.
+  - Signing out (or an expired session) clears it. Demo mode doesn't save anything.
+  - Not done yet: the app ships as one 2 MB script (617 KB gzipped); splitting it per page would help slow connections.
 - [ ] **Resume bullets** (fill in real numbers from `scrape_runs`), for example:
   - "Built a job-aggregation platform that scrapes and scores ~N listings/week from JobStreet and LinkedIn with a configurable rules engine (Python, GitHub Actions)."
   - "Developed a React + TypeScript dashboard backed by Supabase Postgres with row-level security, featuring a kanban application tracker and funnel analytics."

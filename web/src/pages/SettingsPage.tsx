@@ -11,7 +11,7 @@ import type { ScraperSettings, SettingsVersion } from '../data/types'
 import { dateTime, errorText, fromNow } from '../lib/format'
 import { groupByReason } from '../lib/reasons'
 import { filteredHref } from '../lib/ruleLinks'
-import { changedSections, normalizeSettings, settingsProblems } from '../lib/scraperSettings'
+import { changedSections, normalizeSettings, sameValue, settingsProblems } from '../lib/scraperSettings'
 
 const TABS = ['search', 'entry', 'titles', 'checks', 'skills', 'stacks']
 /** The period the drop counts on title rules cover. */
@@ -51,11 +51,9 @@ function SettingsEditor({ versions, tab, onTabChange }: {
   onTabChange: (tab: string) => void
 }) {
   const { message, modal } = App.useApp()
-  const { token } = theme.useToken()
   const save = useSaveSettings()
   const runs = useLatestScrapeRuns()
   const [form] = Form.useForm<ScraperSettings>()
-  const [note, setNote] = useState('')
   const [problems, setProblems] = useState<string[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
   const screens = Grid.useBreakpoint()
@@ -63,7 +61,10 @@ function SettingsEditor({ versions, tab, onTabChange }: {
   const current = versions[0]
   const initial = useMemo(() => normalizeSettings(current?.settings ?? DEFAULT_SETTINGS), [current])
   const values = Form.useWatch([], form) as ScraperSettings | undefined
-  const dirty = !!values && JSON.stringify(normalizeSettings({ ...initial, ...values })) !== JSON.stringify(initial)
+  const dirty = useMemo(
+    () => !!values && !sameValue(normalizeSettings({ ...initial, ...values }), initial),
+    [values, initial],
+  )
 
   // Warn before closing the tab with unsaved edits.
   useEffect(() => {
@@ -89,16 +90,27 @@ function SettingsEditor({ versions, tab, onTabChange }: {
     })
   }, [blocker, modal])
 
-  const submit = () => {
+  // Uses the promise rather than mutate()'s callbacks: a successful save remounts
+  // this editor (it's keyed by version), and those callbacks don't fire after that.
+  const submit = (note: string) => {
     const settings = normalizeSettings({ ...initial, ...form.getFieldsValue(true) })
     const found = settingsProblems(settings)
     setProblems(found)
     if (found.length) return
-    save.mutate({ settings, note: note.trim() || null }, {
-      onSuccess: (saved) => message.success(`Saved as version ${saved.version}. The next scraper run uses it.`),
-      onError: (e) => message.error(`Couldn't save: ${errorText(e)}`),
-    })
+    save.mutateAsync({ settings, note: note.trim() || null })
+      .then((saved) => message.success(`Saved as version ${saved.version}. The next scraper run uses it.`))
+      .catch((e) => message.error(`Couldn't save: ${errorText(e)}`))
   }
+
+  // Built once, so re-rendering the editor (each form edit) doesn't re-render every tab.
+  const tabs = useMemo(() => [
+    { key: 'search', label: 'Search', forceRender: true, children: <SearchTab /> },
+    { key: 'entry', label: 'Entry-level', forceRender: true, children: <EntryLevelTab /> },
+    { key: 'titles', label: 'Title rules', forceRender: true, children: <TitleRulesTab /> },
+    { key: 'checks', label: 'Description checks', forceRender: true, children: <ChecksTab /> },
+    { key: 'skills', label: 'Skills', forceRender: true, children: <SkillsTab /> },
+    { key: 'stacks', label: 'Other stacks', forceRender: true, children: <StacksTab /> },
+  ], [])
 
   const usedBy = (runs.data ?? []).map((r) => r.settings_version)
   const runsOnCurrent = current && usedBy.length > 0 && usedBy.every((v) => v === current.version)
@@ -129,44 +141,52 @@ function SettingsEditor({ versions, tab, onTabChange }: {
 
       <Form form={form} layout="vertical" initialValues={initial} requiredMark={false}>
         <Card styles={{ body: { paddingTop: 4, paddingInline: screens.md ? 24 : 12 } }}>
-        <Tabs
-          activeKey={tab}
-          onChange={onTabChange}
-          items={[
-            { key: 'search', label: 'Search', forceRender: true, children: <SearchTab /> },
-            { key: 'entry', label: 'Entry-level', forceRender: true, children: <EntryLevelTab /> },
-            { key: 'titles', label: 'Title rules', forceRender: true, children: <TitleRulesTab /> },
-            { key: 'checks', label: 'Description checks', forceRender: true, children: <ChecksTab /> },
-            { key: 'skills', label: 'Skills', forceRender: true, children: <SkillsTab /> },
-            { key: 'stacks', label: 'Other stacks', forceRender: true, children: <StacksTab /> },
-          ]}
-        />
+        <Tabs activeKey={tab} onChange={onTabChange} items={tabs} />
         </Card>
       </Form>
 
-      {(dirty || problems.length > 0) && (
-        <div className="save-bar" style={{
-          background: token.colorBgElevated, borderTop: `1px solid ${token.colorBorderSecondary}`,
-          boxShadow: token.boxShadowSecondary,
-        }}>
-          <Flex vertical gap={8} style={{ maxWidth: 1368, margin: '0 auto' }}>
-            {problems.length > 0 && (
-              <Alert type="error" showIcon title="Fix these before saving"
-                description={<ul style={{ margin: 0, paddingInlineStart: 18 }}>{problems.map((p) => <li key={p}>{p}</li>)}</ul>} />
-            )}
-            <Flex gap={8} align="center" wrap>
-              <Input placeholder="What changed? (optional)" aria-label="Note for this version" value={note}
-                onChange={(e) => setNote(e.target.value)} onPressEnter={submit} style={{ flex: '1 1 240px' }}
-                maxLength={200} />
-              <Button onClick={() => { form.resetFields(); setProblems([]); setNote('') }}>Discard changes</Button>
-              <Button type="primary" loading={save.isPending} onClick={submit} disabled={!dirty}>Save as new version</Button>
-            </Flex>
-          </Flex>
-        </div>
-      )}
+      <SaveBar dirty={dirty} problems={problems} saving={save.isPending} onSave={submit}
+        onDiscard={() => { form.resetFields(); setProblems([]) }} />
 
       <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} versions={versions} />
     </>
+  )
+}
+
+/**
+ * The bar along the bottom while there are edits. It keeps the note in its own
+ * state, so typing one re-renders just this bar, not the whole form. It stays
+ * mounted while hidden so the note survives the bar hiding and showing again.
+ */
+function SaveBar({ dirty, problems, saving, onSave, onDiscard }: {
+  dirty: boolean
+  problems: string[]
+  saving: boolean
+  onSave: (note: string) => void
+  onDiscard: () => void
+}) {
+  const { token } = theme.useToken()
+  const [note, setNote] = useState('')
+  if (!dirty && problems.length === 0) return null
+  return (
+    <div className="save-bar" style={{
+      background: token.colorBgElevated, borderTop: `1px solid ${token.colorBorderSecondary}`,
+      boxShadow: token.boxShadowSecondary,
+    }}>
+      <Flex vertical gap={8} style={{ maxWidth: 1368, margin: '0 auto' }}>
+        {problems.length > 0 && (
+          <Alert type="error" showIcon title="Fix these before saving"
+            description={<ul style={{ margin: 0, paddingInlineStart: 18 }}>{problems.map((p) => <li key={p}>{p}</li>)}</ul>} />
+        )}
+        <Flex gap={8} align="center" wrap>
+          <Input placeholder="What changed? (optional)" aria-label="Note for this version" value={note}
+            onChange={(e) => setNote(e.target.value)} onPressEnter={() => onSave(note)} style={{ flex: '1 1 240px' }}
+            maxLength={200} />
+          <Button onClick={() => { onDiscard(); setNote('') }}>Discard changes</Button>
+          <Button type="primary" loading={saving} onClick={() => onSave(note)} disabled={!dirty}>Save as new version</Button>
+        </Flex>
+      </Flex>
+    </div>
   )
 }
 

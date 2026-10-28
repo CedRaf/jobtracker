@@ -121,6 +121,23 @@ export function changedSections(before: ScraperSettings, after: ScraperSettings)
     ['other_stacks', 'other stacks'], ['previous_employers', 'previous employers'],
   ]
   return sections
-    .filter(([key]) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
+    .filter(([key]) => !sameValue(before[key], after[key]))
     .map(([, label]) => label)
+}
+
+/**
+ * Deep equality that ignores object key order. Saved settings come back from
+ * Postgres jsonb with their keys re-sorted, so comparing JSON strings would see
+ * a change where there is none.
+ */
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => sameValue(v, b[i]))
+  }
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false
+  const x = a as Record<string, unknown>
+  const y = b as Record<string, unknown>
+  const keys = Object.keys(x)
+  return keys.length === Object.keys(y).length && keys.every((k) => k in y && sameValue(x[k], y[k]))
 }

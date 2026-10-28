@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { App as AntApp, ConfigProvider, Grid, Result } from 'antd'
-import { api } from './data/api'
+import { api, persistsCache } from './data/api'
+import { createQueryClient, persistOptions } from './data/queryCache'
 import { AuthProvider } from './data/auth'
 import { ApiContext } from './data/hooks'
 import { AuthGate } from './components/AuthGate'
@@ -16,9 +18,26 @@ import { GlobalStyles } from './components/GlobalStyles'
 import { LastVisitContext, startVisit, useTrackVisit } from './lib/lastVisit'
 import { ThemeModeContext, ThemeToggleContext, themeConfig, useThemeMode } from './lib/theme'
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 60_000, refetchOnWindowFocus: true, retry: 1 } },
-})
+const queryClient = createQueryClient()
+
+/** localStorage, or undefined where it's missing or blocked (the cache then just isn't saved). */
+function browserStorage(): Storage | undefined {
+  try {
+    return typeof localStorage === 'undefined' ? undefined : localStorage
+  } catch {
+    return undefined
+  }
+}
+
+/** Keeps fetched data between visits (see data/queryCache.ts), except in demo mode. */
+function QueryProvider({ children }: { children: React.ReactNode }) {
+  if (!persistsCache) return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  return (
+    <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions(browserStorage())}>
+      {children}
+    </PersistQueryClientProvider>
+  )
+}
 
 // A data router, so pages can block navigation (the Rules page guards unsaved edits).
 const router = createBrowserRouter([
@@ -50,13 +69,13 @@ export default function App() {
       <AntApp message={{ top: screens.sm ? 8 : 'calc(100dvh - 136px)' }}>
         {api ? (
           <ApiContext.Provider value={api}>
-            <QueryClientProvider client={queryClient}>
+            <QueryProvider>
               <AuthProvider>
                 <LastVisitContext.Provider value={lastVisit}>
                   <RouterProvider router={router} />
                 </LastVisitContext.Provider>
               </AuthProvider>
-            </QueryClientProvider>
+            </QueryProvider>
           </ApiContext.Provider>
         ) : (
           <Result

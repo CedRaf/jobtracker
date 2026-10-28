@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { DataApi, Job, JobKey, JobPatch, JobSource, ScraperSettings } from './types'
+import type { DataApi, Job, JobKey, JobPatch, JobSource, ScraperSettings, SettingsVersion } from './types'
 import { jobKeyString } from './types'
 
 export const ApiContext = createContext<DataApi | null>(null)
@@ -93,7 +93,12 @@ export function useSaveSettings() {
   return useMutation({
     mutationFn: ({ settings, note }: { settings: ScraperSettings; note: string | null }) =>
       api.saveSettings(settings, note),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: SETTINGS }),
+    onSuccess: (saved) => {
+      // Show the new version straight away, so the editor starts over on it
+      // instead of looking unsaved until the refetch lands.
+      queryClient.setQueryData<SettingsVersion[]>(SETTINGS, (old) => [saved, ...(old ?? [])])
+      void queryClient.invalidateQueries({ queryKey: SETTINGS })
+    },
   })
 }
 
