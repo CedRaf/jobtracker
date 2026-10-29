@@ -60,6 +60,7 @@ The flow is `scraper.scrape()`, shared by both job boards:
 4. Compile the rules from the settings (`rules.configure`).
 5. **Collect:** run every search (keyword × {home city, remote elsewhere}) and merge the results by job ID.
 6. Skip jobs already **seen** in earlier runs (`data/*seen_ids.json`, carried between runs by the GitHub Actions cache).
+   Then drop jobs **another site already has**: kept jobs from the other sources in the last `duplicate_lookback_days` (60) are loaded from Supabase and compared on a cleaned title + company key (section 4.8). Matches are filtered as `"duplicate posting (also on JobStreet)"`. If Supabase can't be read, this step is skipped.
 7. **Evaluate** each new job:
    1. A title-only check, with no request needed.
    2. Fetch the details.
@@ -201,7 +202,18 @@ The rules come from settings (section 4.5). How matching works is fixed in code:
 
 ### 4.7 Other scraper files
 - **`import_sheet.py`:** the one-off import of the Sheet's CSV exports. By default it keeps jobs already in Supabase as they are; `--overwrite` replaces them. It preserves `first_seen`, statuses, notes and draft dates. It's already been run (154 jobs + 216 filtered).
-- **`config.json` keys:** `cebu_location` (JobStreet's location string), `sort`, `delay_seconds` (JobStreet pacing), `seen_ids_retention_days`, `outputs`, `linkedin`, `himalayas`. A source's block may have its own `outputs`, which replaces the shared list for that source (`sinks.output_names`).
+- **`config.json` keys:** `cebu_location` (JobStreet's location string), `sort`, `delay_seconds` (JobStreet pacing), `seen_ids_retention_days`, `duplicate_lookback_days`, `outputs`, `linkedin`, `himalayas`. A source's block may have its own `outputs`, which replaces the shared list for that source (`sinks.output_names`).
+
+### 4.8 Duplicates across sites (`scraper.py`)
+- **Two checks.** Within one site, `repost_key()` (exact title + company, kept in the seen list) catches a job reposted under a new ID. Across sites, `cross_site_key()` compares new jobs with the jobs the *other* sites kept recently (`sinks.recent_jobs`), before any details are fetched.
+- **The cross-site key** strips what only says how a job is posted:
+  - **Title:** parts split off by ` - `, ` | `, ` / `, `:` or brackets are dropped only if *every* word in them is posting noise (remote, full time, urgent hiring, a city, …) or a reference code (`1182`, `080426`, `REQ12345`). So "1182 - Junior Frontend Developer (Part-Time)" becomes "junior frontend developer", while "Developer (RPA)" and "Developer (QA)" stay different.
+  - **Company:** a leading "the" and trailing suffixes (Inc, Corp, Ltd, Pty, LLC, Philippines, …) are dropped, so "Hunt St Pty Ltd" matches "Hunt St".
+  - No key (so no match) without both a title and a company.
+- **Deliberately exact-match, not fuzzy:** a missed duplicate costs a few seconds of review, but a wrong match hides a real job. `tests/test_duplicates.py` has cases for both, including different roles at the same company.
+- **The first site wins.** The workflow runs JobStreet → LinkedIn → Himalayas, each delivering before the next starts, so a later site's copy is the one filtered, with the earlier site's name in the reason.
+- **Fail-safe:** the lookup reads every recent job and skips the run's own site in Python, not with `source=neq.…`, so it also works before a new source's enum migration is pushed. Any error just skips the cross-site check.
+- Checked against the real data on 2026-10-29: 1 cross-site duplicate among 223 kept jobs (the same Hunt St role on LinkedIn and JobStreet), and no wrong matches.
 
 ---
 
@@ -399,7 +411,7 @@ No real secret has ever been committed (history checked 2026-10-26). The repo is
 
 | Suite | Where | Count (2026-10-29) | Run with |
 |---|---|---|---|
-| Scraper | `scraper/tests/` | **172** test cases | `cd scraper && ../.venv/Scripts/python.exe -m pytest` |
+| Scraper | `scraper/tests/` | **199** test cases | `cd scraper && ../.venv/Scripts/python.exe -m pytest` |
 | Dashboard | `web/src/**/*.test.ts(x)` | **114** test cases in 16 files | `cd web && npm test` |
 
 Counts are test **cases**; table-driven tests count each input. CI runs both on every push.
@@ -410,6 +422,7 @@ Counts are test **cases**; table-driven tests count each input. CI runs both on 
 - **`test_settings.py`:** validation, defaults in all three places, settings changing the rules, and settings loading with fallbacks.
 - **`test_sinks.py`:** row conversion, the REST client (headers, batching, retries), outputs, delivery and the run log. All against fake HTTP, with no network.
 - **`test_linkedin.py`:** 429 handling, `Retry-After`, stopping early, the time budget and page limits.
+- **`test_duplicates.py`:** the cross-site key (same jobs formatted differently must match; different roles must not), the lookup and its fallbacks, and duplicates being filtered before evaluation in a run.
 - **`test_himalayas.py`:** the client (query, 429, bad responses), field mapping, the country/timezone eligibility rule, paging, stopping early, expired jobs and duplicates.
 - **Dashboard logic** (`lib/*.test.ts`): filters, analytics, entry-level matching, rule validation, flags, reasons, rule links, the email template, last visit, and (in `data/`) the query cache and auth clearing.
 - **Dashboard pages** (`pages/*.test.tsx`): render real pages on demo data and click through them. Multi-site behaviour uses `test/twoSiteApi.ts`, which relabels some demo jobs as a second site.
@@ -480,6 +493,7 @@ Done:
 - **Deployments:** both Vercel deployments and the README with the demo link.
 - **The LinkedIn rate-limit fix.**
 - **Himalayas as a third source** (2026-10-29).
+- **Duplicates across sites** (2026-10-29).
 
 Open (details in `docs/Plan.md`):
 - **Phase 4 cutover:**
@@ -489,7 +503,6 @@ Open (details in `docs/Plan.md`):
   - trim `Code.gs` down to the timer.
 - **Phase 5:** resume bullets (drafted; refresh the numbers in a month). Optional: `VITE_GITHUB_REPO` for run-log links.
 - **Possible next features:**
-  - **duplicates across sites:** the repost check only looks at one site's seen list, so a job posted on two boards shows up twice. Planned: check new jobs against recent jobs from every site in Supabase, using a stricter title + company key;
   - more remote sources if Himalayas proves useful: Jobicy or Remotive, or Greenhouse/Lever/Ashby public job boards for a chosen list of companies (`boards-api.greenhouse.io/v1/boards/<company>/jobs`). A new source needs a client plus `collect()`/`evaluate_jobs()` (see section 10);
   - the Rules preview;
   - LLM fit scoring;

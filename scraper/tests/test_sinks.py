@@ -184,6 +184,29 @@ def test_build_sinks_reports_missing_credentials():
     assert missing == ["supabase"]
 
 
+def test_select_all_pages_past_the_row_limit():
+    session = FakeSession([FakeResponse(200, [{"n": 1}, {"n": 2}]), FakeResponse(200, [{"n": 3}])])
+    client = sinks.SupabaseClient("https://x.supabase.co", "sb_secret_x", session)
+    assert client.select_all("jobs", {"select": "n"}, page_size=2) == [{"n": 1}, {"n": 2}, {"n": 3}]
+    assert [kw["params"]["offset"] for _, _, kw in session.calls] == [0, 2]
+
+
+def test_recent_jobs_returns_other_sources_since_the_lookback(monkeypatch):
+    rows = [{"source": "jobstreet", "title": "A", "company": "X"},
+            {"source": "himalayas", "title": "B", "company": "Y"}]
+    session = FakeSession([FakeResponse(200, rows)])
+    monkeypatch.setattr(sinks, "supabase_client",
+                        lambda secrets: sinks.SupabaseClient("https://x.supabase.co", "sb_secret_x", session))
+    assert sinks.recent_jobs({}, 60, "himalayas") == rows[:1]
+    params = session.calls[0][2]["params"]
+    assert "source" not in params  # works before the enum has the source
+    assert params["first_seen"].startswith("gte.") and params["select"] == "source,title,company"
+
+
+def test_recent_jobs_without_a_key_returns_none():
+    assert sinks.recent_jobs({}, 60, "himalayas") is None
+
+
 def test_a_source_can_have_its_own_outputs():
     cfg = {"outputs": ["sheet", "supabase"], "himalayas": {"outputs": ["supabase"]}}
     secrets = {"webapp_url": "u", "token": "t", "supabase_url": "https://x.supabase.co",

@@ -151,6 +151,35 @@ class SupabaseClient:
     def select(self, table, params):
         return self._request("GET", table, params=params) or []
 
+    def select_all(self, table, params, page_size=1000):
+        """select() past PostgREST's row limit, a page at a time."""
+        rows = []
+        while True:
+            page = self.select(table, {**params, "limit": page_size, "offset": len(rows)})
+            rows += page
+            if len(page) < page_size:
+                return rows
+
+
+def recent_jobs(secrets, days, exclude_source):
+    """
+    Kept jobs from the other sources first seen in the last `days` days, as
+    [{"source", "title", "company"}], for the cross-site duplicate check.
+    Returns None when there's no Supabase key to read with.
+    """
+    client = supabase_client(secrets)
+    if not client:
+        return None
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    rows = client.select_all("jobs", {
+        "select": "source,title,company",
+        "first_seen": f"gte.{since}",
+        "order": "first_seen.asc",
+    })
+    # Filtered here rather than with source=neq.<source>: that fails on a
+    # source the job_source enum doesn't have yet (migration not pushed).
+    return [row for row in rows if row.get("source") != exclude_source]
+
 
 def load_settings(secrets):
     """

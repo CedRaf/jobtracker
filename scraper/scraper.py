@@ -180,6 +180,93 @@ def repost_key(job):
     return "tc:" + re.sub(r"\W+", " ", f"{job['title']}|{job['company']}".lower()).strip()
 
 
+# ---- the same job on another site --------------------------------------------
+#
+# Each site formats titles and company names its own way, so the cross-site
+# key strips what only says *how* a job is posted. It's deliberately cautious:
+# a missed duplicate costs a few seconds of review, a wrong match hides a real
+# job. Only title parts made entirely of these words (or of reference codes)
+# are dropped; "Developer (RPA)" and "Developer (QA)" stay different.
+
+SOURCE_LABELS = {"jobstreet": "JobStreet", "linkedin": "LinkedIn", "himalayas": "Himalayas"}
+
+TITLE_NOISE = {
+    "remote", "hybrid", "onsite", "on", "site", "wfh", "work", "from", "home", "office", "based",
+    "full", "part", "time", "fulltime", "parttime", "contract", "contractual", "freelance",
+    "permanent", "temporary", "project", "urgent", "hiring", "immediate", "start", "now",
+    "global", "worldwide", "anywhere", "international", "philippines", "ph", "cebu", "manila",
+    "city", "metro", "makati", "taguig", "pasig", "ortigas", "bgc", "apac", "asia", "only",
+    "day", "shift", "night", "mid", "and", "or", "to", "in", "the", "a", "for", "with",
+}
+COMPANY_SUFFIXES = {
+    "inc", "incorporated", "corp", "corporation", "co", "company", "ltd", "limited", "llc",
+    "opc", "pte", "plc", "gmbh", "pty", "philippines", "phils", "phil", "ph",
+}
+TITLE_PARTS = re.compile(r"\s+[-–—|:/]\s+|[()\[\]]")
+REFERENCE_CODE = re.compile(r"^[a-z]{0,4}\d{3,}\w*$")   # "1182", "080426", "req12345"
+
+
+def _words(text):
+    return re.sub(r"[^\w#+]+", " ", text.lower()).split()
+
+
+def _title_core(title):
+    parts = [_words(part) for part in TITLE_PARTS.split(title or "")]
+    kept = [part for part in parts
+            if part and not all(w in TITLE_NOISE or REFERENCE_CODE.match(w) for w in part)]
+    return " ".join(w for part in kept for w in part)
+
+
+def _company_core(company):
+    words = _words(company or "")
+    if len(words) > 1 and words[0] == "the":
+        words.pop(0)
+    while len(words) > 1 and words[-1] in COMPANY_SUFFIXES:
+        words.pop()
+    return " ".join(words)
+
+
+def cross_site_key(title, company):
+    """
+    '1182 - Junior Frontend Developer (Part-Time)' at 'GoFasti Inc.'
+    -> 'junior frontend developer|gofasti'. None without a title or company.
+    """
+    title, company = _title_core(title), _company_core(company)
+    return f"{title}|{company}" if title and company else None
+
+
+def other_site_jobs(cfg, secrets, source):
+    """
+    {cross_site_key: source label} for jobs the other sites kept recently.
+    Empty if Supabase can't be read: the run then relies on its own repost
+    check, as before.
+    """
+    days = cfg.get("duplicate_lookback_days", 60)
+    try:
+        rows = sinks.recent_jobs(secrets, days, source)
+    except Exception as e:
+        log.warning("Couldn't load other sites' jobs for the duplicate check: %s", e)
+        return {}
+    known = {}
+    for row in rows or []:
+        key = cross_site_key(row.get("title"), row.get("company"))
+        if key:
+            known.setdefault(key, SOURCE_LABELS.get(row.get("source"), row.get("source")))
+    return known
+
+
+def drop_cross_site_duplicates(candidates, known):
+    """Returns (remaining candidates, filtered records for jobs another site already has)."""
+    remaining, filtered = [], []
+    for job in candidates:
+        site = known.get(cross_site_key(job["title"], job["company"]))
+        if site:
+            filtered.append(filtered_record(job, f"duplicate posting (also on {site})"))
+        else:
+            remaining.append(job)
+    return remaining, filtered
+
+
 def evaluate_jobs(session, cfg, candidates, seen):
     """Returns (kept_records, filtered_records, expired_ids)."""
     kept, filtered, expired = [], [], []
@@ -330,10 +417,15 @@ def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix=
         jobs = collect_fn(session, cfg)
         candidates = [j for j in jobs.values() if j["id"] not in seen]
         log.info("%d unique jobs found, %d not seen before", len(jobs), len(candidates))
+        candidates, duplicates = drop_cross_site_duplicates(
+            candidates, other_site_jobs(cfg, secrets, source))
+        if duplicates:
+            log.info("%d already found on another site", len(duplicates))
         if args.limit:
             candidates = candidates[:args.limit]
 
         kept, filtered, expired = evaluate_fn(session, cfg, candidates, seen)
+        filtered = duplicates + filtered
         log.info("New jobs kept: %d, filtered out: %d, expired: %d",
                  len(kept), len(filtered), len(expired))
         stats.update(found=len(jobs), evaluated=len(candidates), kept=len(kept),
