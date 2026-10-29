@@ -22,7 +22,7 @@ export function createTwoSiteApi(): DataApi {
   return {
     ...api,
     sources: ['jobstreet', 'linkedin'],
-    sourceLabels: { jobstreet: 'JobStreet', linkedin: 'LinkedIn' },
+    sourceLabels: { jobstreet: 'JobStreet', linkedin: 'LinkedIn', himalayas: 'Himalayas' },
     listJobs: async () => (await api.listJobs()).map(relabel),
     getDescription: (key) => api.getDescription(stored(key)),
     updateJob: async (key, patch) => relabel(await api.updateJob(stored(key), patch)),

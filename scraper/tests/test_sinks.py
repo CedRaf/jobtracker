@@ -184,6 +184,16 @@ def test_build_sinks_reports_missing_credentials():
     assert missing == ["supabase"]
 
 
+def test_a_source_can_have_its_own_outputs():
+    cfg = {"outputs": ["sheet", "supabase"], "himalayas": {"outputs": ["supabase"]}}
+    secrets = {"webapp_url": "u", "token": "t", "supabase_url": "https://x.supabase.co",
+               "supabase_secret_key": "sb_secret_x"}
+    found, missing = sinks.build_sinks(cfg, secrets, "himalayas", "himalayas_", None)
+    assert [s.name for s in found] == ["supabase"] and missing == []
+    found, _ = sinks.build_sinks(cfg, secrets, "jobstreet", "", None)
+    assert [s.name for s in found] == ["sheet", "supabase"]
+
+
 def test_build_sinks_rejects_unknown_output():
     with pytest.raises(ValueError):
         sinks.build_sinks({"outputs": ["excel"]}, {}, "jobstreet", "", None)

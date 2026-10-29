@@ -11,5 +11,11 @@
     "max_pages_per_search": 3,
     "delay_seconds": 5,
     "time_budget_minutes": 20
+  },
+  "himalayas": {
+    "delay_seconds": 1,
+    "outputs": [
+      "supabase"
+    ]
   }
 }

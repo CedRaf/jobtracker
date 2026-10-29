@@ -19,9 +19,9 @@ describe('jobsPerDay', () => {
       makeJob({ source: 'jobstreet', first_seen: dayjs('2026-10-01T10:00:00').toISOString() }), // too old
     ], 3, now)
     expect(days).toEqual([
-      { day: '2026-10-20', jobstreet: 1, linkedin: 0 },
-      { day: '2026-10-21', jobstreet: 0, linkedin: 0 },
-      { day: '2026-10-22', jobstreet: 1, linkedin: 1 },
+      { day: '2026-10-20', jobstreet: 1, linkedin: 0, himalayas: 0 },
+      { day: '2026-10-21', jobstreet: 0, linkedin: 0, himalayas: 0 },
+      { day: '2026-10-22', jobstreet: 1, linkedin: 1, himalayas: 0 },
     ])
   })
 })

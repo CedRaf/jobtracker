@@ -1,6 +1,6 @@
 // Mirrors supabase/migrations/*_init.sql. Keep the two in sync.
 
-export type JobSource = 'jobstreet' | 'linkedin'
+export type JobSource = 'jobstreet' | 'linkedin' | 'himalayas'
 
 export type JobStatus =
   | 'new'

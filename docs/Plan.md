@@ -296,6 +296,8 @@ The search terms and filter rules used to be hard-coded in `scraper/rules.py` an
   - "Migrated from a Google Sheets prototype to Postgres using dual-writes, with zero missed runs; CI-tested rules with a regression suite built from real labelled data."
 
 ### Phase 6: Optional extras (pick what sounds fun)
+- [x] **Himalayas as a third source (2026-10-29):** remote jobs open to the Philippines, from Himalayas' public JSON API (`himalayas_api.py`, `Himalayas_Scraper.py`). No per-job requests: search results include the description and the allowed countries and timezones, and jobs not open to the Philippines or UTC+8 are dropped with a reason. Writes to Supabase only, through a per-source `outputs` in `config.json`, so `Code.gs` is unchanged. Migration `20261029000000_himalayas_source.sql` adds the enum value; push it before the first run. Tests: `scraper/tests/test_himalayas.py`.
+- [ ] **Duplicates across sites:** a job on two boards is kept twice, because each site's repost check only sees its own seen list. Check new jobs against recent jobs from every site in Supabase (stricter title + company key, first site wins, reason "duplicate posting (also on <site>)").
 - **LLM fit scoring:** a short "why this fits / gaps" summary for each job against your resume, stored next to `match_score`.
 - [x] **Rules editor UI:** done early, see "Editable scraper rules" below.
 - [ ] **Rules preview:** in the Rules editor, show what a title-rule edit would change before saving ("3 kept jobs would now be dropped, 5 filtered jobs would be kept"), checked in the browser against the jobs and filtered jobs already loaded.

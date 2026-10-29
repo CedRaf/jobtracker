@@ -236,13 +236,21 @@ def supabase_client(secrets):
     return None
 
 
+def output_names(cfg, source):
+    """
+    The outputs for one source: its own "outputs" in config.json if it has one
+    (e.g. "himalayas": {"outputs": ["supabase"]}), otherwise the shared list.
+    """
+    return cfg.get(source, {}).get("outputs") or cfg.get("outputs", ["sheet"])
+
+
 def build_sinks(cfg, secrets, source, sheet_prefix, post_to_sheet):
     """
     Returns (sinks, missing): the configured outputs that have credentials,
     and the names of those that don't.
     """
     sinks, missing = [], []
-    for name in cfg.get("outputs", ["sheet"]):
+    for name in output_names(cfg, source):
         if name == "sheet":
             if secrets.get("webapp_url") and secrets.get("token"):
                 sinks.append(SheetSink(secrets, sheet_prefix, post_to_sheet))
@@ -287,7 +295,7 @@ def run_log(cfg, secrets, source, dry_run=False):
     writing the log never fails the run itself.
     """
     stats = {}
-    client = None if dry_run or "supabase" not in cfg.get("outputs", []) else supabase_client(secrets)
+    client = None if dry_run or "supabase" not in output_names(cfg, source) else supabase_client(secrets)
     run_id = None
     if client:
         try:

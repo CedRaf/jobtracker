@@ -16,6 +16,7 @@ export interface DayCount {
   day: string
   jobstreet: number
   linkedin: number
+  himalayas: number
 }
 
 /** Kept jobs per day and source for the last `days` days (oldest first, empty days included). */
@@ -23,7 +24,7 @@ export function jobsPerDay(jobs: Pick<Job, 'source' | 'first_seen'>[], days: num
   const counts = new Map<string, DayCount>()
   for (let i = days - 1; i >= 0; i--) {
     const day = now.subtract(i, 'day').format('YYYY-MM-DD')
-    counts.set(day, { day, jobstreet: 0, linkedin: 0 })
+    counts.set(day, { day, jobstreet: 0, linkedin: 0, himalayas: 0 })
   }
   for (const job of jobs) {
     const entry = counts.get(dayjs(job.first_seen).format('YYYY-MM-DD'))

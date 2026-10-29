@@ -1,4 +1,4 @@
-name: JobStreet + LinkedIn scraper
+name: JobStreet + LinkedIn + Himalayas scraper
 
 on:
   # No cron schedule: GitHub started scheduled runs hours late. The Google Apps
@@ -51,6 +51,13 @@ jobs:
           key: linkedin-seen-ids-${{ github.run_id }}
           restore-keys: linkedin-seen-ids-
 
+      - name: Restore seen Himalayas job IDs
+        uses: actions/cache/restore@v4
+        with:
+          path: scraper/data/himalayas_seen_ids.json
+          key: himalayas-seen-ids-${{ github.run_id }}
+          restore-keys: himalayas-seen-ids-
+
       - name: Run scraper
         env:
           SHEET_WEBAPP_URL: ${{ secrets.SHEET_WEBAPP_URL }}
@@ -77,6 +84,18 @@ jobs:
         working-directory: scraper
         run: python LinkedIn_Scraper.py ${LIMIT:+--limit "$LIMIT"}
 
+      # Himalayas' public JSON API: a handful of requests, no per-job fetches.
+      # Writes to Supabase only (config.json "himalayas" -> "outputs").
+      - name: Run Himalayas scraper
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          LIMIT: ${{ inputs.limit }}
+        working-directory: scraper
+        run: python Himalayas_Scraper.py ${LIMIT:+--limit "$LIMIT"}
+
       - name: Save seen job IDs
         if: always()
         uses: actions/cache/save@v4
@@ -90,6 +109,13 @@ jobs:
         with:
           path: scraper/data/linkedin_seen_ids.json
           key: linkedin-seen-ids-${{ github.run_id }}
+
+      - name: Save seen Himalayas job IDs
+        if: always() && hashFiles('scraper/data/himalayas_seen_ids.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: scraper/data/himalayas_seen_ids.json
+          key: himalayas-seen-ids-${{ github.run_id }}
 
       - name: Upload log
         if: always()

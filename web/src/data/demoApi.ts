@@ -27,7 +27,7 @@ export function createDemoApi(): DataApi {
     // The public demo shows a single job site.
     sources: ['jobstreet'],
     // Generic, so the public demo doesn't name any real job site.
-    sourceLabels: { jobstreet: 'Job board', linkedin: 'Second job board' },
+    sourceLabels: { jobstreet: 'Job board', linkedin: 'Second job board', himalayas: 'Third job board' },
     async listJobs() {
       await wait()
       return jobs.map((j) => ({ ...j }))
