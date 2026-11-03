@@ -159,29 +159,14 @@ def test_client_errors_are_not_retried():
 # ---- sinks and delivery ----------------------------------------------------------
 
 
-def test_sheet_sink_strips_db_only_fields_and_uses_prefix():
-    sent = {}
-
-    def post(secrets, **records):
-        sent.update(records)
-        return {"linkedin_added": 1, "linkedin_skipped": 0, "linkedin_filtered_added": 1}
-
-    sinks.SheetSink({}, "linkedin_", post).write([KEPT], [FILTERED])
-    assert set(sent) == {"linkedin_jobs", "linkedin_filtered"}
-    assert "description" not in sent["linkedin_jobs"][0]
-    assert "repost_key" not in sent["linkedin_jobs"][0]
-
-
-def test_sheet_sink_detects_old_apps_script():
-    with pytest.raises(RuntimeError, match="Code.gs"):
-        sinks.SheetSink({}, "linkedin_", lambda secrets, **r: {"added": 0}).write([KEPT], [])
-
-
 def test_build_sinks_reports_missing_credentials():
-    cfg = {"outputs": ["sheet", "supabase"]}
-    found, missing = sinks.build_sinks(cfg, {"webapp_url": "u", "token": "t"}, "jobstreet", "", None)
-    assert [s.name for s in found] == ["sheet"]
-    assert missing == ["supabase"]
+    found, missing = sinks.build_sinks({"outputs": ["supabase"]}, {}, "jobstreet")
+    assert found == [] and missing == ["supabase"]
+
+
+def test_build_sinks_explains_the_retired_sheet_output():
+    with pytest.raises(ValueError, match="retired"):
+        sinks.build_sinks({"outputs": ["sheet", "supabase"]}, {}, "jobstreet")
 
 
 def test_select_all_pages_past_the_row_limit():
@@ -208,18 +193,15 @@ def test_recent_jobs_without_a_key_returns_none():
 
 
 def test_a_source_can_have_its_own_outputs():
-    cfg = {"outputs": ["sheet", "supabase"], "himalayas": {"outputs": ["supabase"]}}
-    secrets = {"webapp_url": "u", "token": "t", "supabase_url": "https://x.supabase.co",
-               "supabase_secret_key": "sb_secret_x"}
-    found, missing = sinks.build_sinks(cfg, secrets, "himalayas", "himalayas_", None)
-    assert [s.name for s in found] == ["supabase"] and missing == []
-    found, _ = sinks.build_sinks(cfg, secrets, "jobstreet", "", None)
-    assert [s.name for s in found] == ["sheet", "supabase"]
+    cfg = {"outputs": ["supabase"], "himalayas": {"outputs": ["elsewhere"]}}
+    assert sinks.output_names(cfg, "himalayas") == ["elsewhere"]
+    assert sinks.output_names(cfg, "jobstreet") == ["supabase"]
+    assert sinks.output_names({}, "jobstreet") == ["supabase"]
 
 
 def test_build_sinks_rejects_unknown_output():
     with pytest.raises(ValueError):
-        sinks.build_sinks({"outputs": ["excel"]}, {}, "jobstreet", "", None)
+        sinks.build_sinks({"outputs": ["excel"]}, {}, "jobstreet")
 
 
 class RecordingSink:
@@ -233,15 +215,15 @@ class RecordingSink:
 
 
 def test_deliver_writes_to_every_sink_even_if_one_fails():
-    broken, healthy = RecordingSink("sheet", fail=True), RecordingSink("supabase")
-    with pytest.raises(RuntimeError, match="sheet: down"):
+    broken, healthy = RecordingSink("first", fail=True), RecordingSink("supabase")
+    with pytest.raises(RuntimeError, match="first: down"):
         sinks.deliver([broken, healthy], [], [KEPT], [])
     assert healthy.calls == 1
 
 
 def test_deliver_fails_when_an_output_has_no_credentials():
     with pytest.raises(RuntimeError, match="supabase: credentials missing"):
-        sinks.deliver([RecordingSink("sheet")], ["supabase"], [], [])
+        sinks.deliver([RecordingSink("first")], ["supabase"], [], [])
 
 
 # ---- run log -----------------------------------------------------------------
@@ -286,10 +268,10 @@ def test_run_log_records_errors_and_reraises(fake_client):
     assert fake_client.updates[0][2]["error"] == "ValueError: JobStreet changed its API"
 
 
-def test_run_log_skips_dry_runs_and_sheet_only(fake_client):
+def test_run_log_skips_dry_runs_and_runs_without_supabase(fake_client):
     with sinks.run_log(CFG, {}, "jobstreet", dry_run=True):
         pass
-    with sinks.run_log({"outputs": ["sheet"]}, {}, "jobstreet"):
+    with sinks.run_log({"outputs": ["elsewhere"]}, {}, "jobstreet"):
         pass
     assert fake_client.inserted == [] and fake_client.updates == []
 

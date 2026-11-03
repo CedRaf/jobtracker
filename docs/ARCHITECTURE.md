@@ -38,14 +38,11 @@ Everything is hosted on free tiers, and nothing runs on your own machine.
  (apps_script/Code.gs)                                          │
                                                                 │ 1. python scraper.py         (JobStreet)
                                                                 │ 2. python LinkedIn_Scraper.py
-                                                                │ 3. python Himalayas_Scraper.py (Supabase only)
+                                                                │ 3. python Himalayas_Scraper.py
                                                                 ▼
                       ┌──── reads the newest settings version ──── Supabase ◀── upsert jobs, filtered jobs,
                       │                                           (Postgres)     run log (secret key)
    job boards ◀── search + details ── scraper (rules.py)  ─────────────┘
-                                          │
-                                          └── also posts to the Google Sheet while it's still an output
-                                              (Apps Script web app, doPost)
 
    Browser (phone / PC) ── supabase-js (publishable key + your login token) ──▶ Supabase REST API
    Dashboard (static files on Vercel)                                           └ row-level security decides
@@ -66,7 +63,7 @@ The flow is `scraper.scrape()`, shared by both job boards:
    2. Fetch the details.
    3. Description checks, skill scoring and flags.
    4. The result is kept, filtered (with a reason) or expired.
-8. **Deliver** to every output in `config.json` `"outputs"` (Supabase, and the Sheet during the cutover), or the source's own `"outputs"` if it has one (Himalayas: Supabase only). Every output is attempted even if one fails. Writes skip IDs that already exist, so retries are safe.
+8. **Deliver** to every output in `config.json` `"outputs"` (Supabase), or the source's own `"outputs"` if it has one. Every output is attempted even if one fails. Writes skip IDs that already exist, so retries are safe.
 9. Only if every output succeeded, mark the jobs as **seen**. Otherwise the next run retries them.
 10. Finish the run-log row with counts, or the error.
 
@@ -86,7 +83,7 @@ The flow is `scraper.scrape()`, shared by both job boards:
 .github/workflows/
   ci.yml                 lint + tests + build on every push / PR (scraper and web jobs)
   scraper.yml            the scraper run (manual "Run workflow"; started by Apps Script)
-apps_script/Code.gs      Google Apps Script: twice-daily timer, Sheet web app (doPost), Gmail-draft trigger
+apps_script/Code.gs      Google Apps Script: the twice-daily timer
 docs/                    Plan.md, this file, setup guides, screenshots/ (README images)
 PRODUCT.md               product context (users, principles) for design work
 README.md                public introduction
@@ -94,14 +91,14 @@ README.md                public introduction
 scraper/
   scraper.py             JobStreet run + the shared scrape() flow, CLI (--dry-run, --limit)
   LinkedIn_Scraper.py    LinkedIn run (personal/educational use: see its header)
-  Himalayas_Scraper.py   Himalayas run (remote jobs open to the Philippines; Supabase only)
+  Himalayas_Scraper.py   Himalayas run (remote jobs open to the Philippines)
   jobstreet_api.py       JobStreet client (the site's GraphQL endpoint)
   linkedin_api.py        LinkedIn client (logged-out public job pages, HTML parsing)
   himalayas_api.py       Himalayas client (the public JSON search API)
   rules.py               filtering, flagging and skill scoring, built from the settings
   settings.py            settings validation + defaults loading + search_config()
   default_settings.json  default search terms and rules (also seeded into the DB as version 1)
-  sinks.py               outputs (Sheet, Supabase), Supabase REST client, run log, settings loading
+  sinks.py               outputs (Supabase), Supabase REST client, run log, settings loading
   import_sheet.py        one-off import of the Sheet's history into Supabase
   config.json            operational settings (location string, delays, outputs, LinkedIn pacing)
   secrets.example.json   template for local credentials (secrets.json is gitignored)
@@ -141,7 +138,7 @@ web/                     the dashboard (Vite + React + TypeScript)
 - **`himalayas_api.py`:** GETs `https://himalayas.app/jobs/api/search?q=<keyword>&country=PH&page=N`, Himalayas' public JSON API (20 jobs a page, no date filter). `country=PH` returns jobs open to the Philippines plus worldwide ones. Each result already has the full description, so there are no per-job requests and no details step. One retry on a 429, like LinkedIn.
   - `Himalayas_Scraper.py` keys jobs by their listing URL (`guid`, minus `https://himalayas.app/companies/`), since there's no numeric ID. Everything is remote, so `work_arrangements` is `["Remote"]`.
   - **Eligibility:** a job whose `locationRestrictions` doesn't include the Philippines, or whose `timezoneRestrictions` doesn't include UTC+8, is dropped ("not open to the Philippines (… only)" / "not open to UTC+8"). Empty lists mean no restriction. Jobs past `expiryDate` count as expired.
-  - `config.json` → `"himalayas"`: `delay_seconds` (1) and `outputs` (`["supabase"]`; the Sheet has no Himalayas tabs).
+  - `config.json` → `"himalayas"`: `delay_seconds` (1).
 - **Each source module has a `collect()` and an `evaluate_jobs()`** (search, then per-job evaluation) that `scraper.scrape()` calls. A new source means a new client plus these two functions; nothing else changes.
 
 ### 4.3 LinkedIn pacing (`config.json` → `"linkedin"`)
@@ -195,7 +192,6 @@ The rules come from settings (section 4.5). How matching works is fixed in code:
   - New `sb_secret_…` keys go in the `apikey` header; legacy JWT keys also go in `Authorization`.
   - Retries connection errors and 5xx responses (5 s, then 20 s), but not 4xx.
   - Inserts in batches of 500 with `on_conflict=source,external_id` and `ignore-duplicates`. Your dashboard edits are never overwritten.
-- **`SheetSink`:** posts to the Apps Script web app and strips the fields the Sheet has no columns for (`description`, `repost_key`).
 - **`deliver()`:** writes to every output, then raises if any failed or had no credentials. Jobs aren't marked seen unless everything succeeded.
 - **`run_log()`:** a context manager that creates the `scrape_runs` row and finishes it with counts, or the error. Problems writing the log never fail the run. If the database lacks the `settings_version` column, it retries without it.
 - **`load_settings()`:** loads the newest settings version (section 4.5) and falls back to the defaults.
@@ -374,7 +370,7 @@ Components never call Supabase directly. Everything goes through one interface.
 
 ### 7.1 Scheduling
 - **GitHub's own cron ran hours late,** so `scraper.yml` has **no schedule**. Instead, `apps_script/Code.gs` `startScraper()` runs at 11:00 and 15:00 Manila time (installed with `installScraperTimers()`). It calls GitHub's "run workflow" API for `GITHUB_REPO` (`CedRaf/jobtracker`), using a fine-grained token stored in a Script Property.
-- **`Code.gs` also serves the Sheet** (`doPost` appends rows and skips IDs it already has) and the Gmail-draft trigger, until the Sheet is retired. Personal email wording lives in Script Properties, not in the code.
+- **The Google Sheet was retired on 2026-11-03.** `Code.gs` no longer serves it (`doPost`) or makes Sheet-based Gmail drafts; drafts come from the dashboard's "Draft in Gmail". The Sheet is kept as an archive. Clean-up steps: `docs/TOKEN_SETUP.md`, "Retiring the Sheet".
 
 ### 7.2 GitHub Actions
 - **`scraper.yml`**, one job (45-minute limit):
@@ -384,7 +380,7 @@ Components never call Supabase directly. Everything goes through one interface.
   4. Himalayas (10-minute step limit; needs only the Supabase secrets);
   5. save the caches;
   6. upload the logs.
-- Its secrets are `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SHEET_WEBAPP_URL` and `SHEET_TOKEN`.
+- Its secrets are `SUPABASE_URL` and `SUPABASE_SECRET_KEY`.
 - **`ci.yml`** runs on every push and pull request. The `scraper` job runs ruff + pytest; the `web` job runs `npm ci`, lint, Vitest and the build.
 
 ### 7.3 Vercel (two projects, same repo, Root Directory `web`)
@@ -399,7 +395,6 @@ Components never call Supabase directly. Everything goes through one interface.
 |---|---|
 | Supabase secret key | GitHub Actions secrets; locally only in gitignored `scraper/secrets.json` (delete it when not needed) |
 | Supabase publishable key | Vercel (personal project) and `web/.env.local`; safe in the browser |
-| Sheet web-app URL + token | GitHub secrets; Apps Script property `SECRET_TOKEN` |
 | GitHub token for the timer | Apps Script property `GITHUB_TOKEN` |
 | Email template | your browser's localStorage |
 
@@ -447,7 +442,7 @@ Counts are test **cases**; table-driven tests count each input. CI runs both on 
 9. **Optimistic updates with Undo.** Status changes feel instant on a phone.
 10. **Single-site deployments hide site names.** The public demo never names a real job board.
 11. **LinkedIn stays a personal, educational tool,** paced and time-boxed. The demo leaves it out.
-12. **The Sheet was replaced by dual writes,** so it can be switched off in one line (Phase 4).
+12. **The Sheet was replaced by dual writes,** then switched off once the dashboard had taken over (Phase 4, 2026-11-03).
 
 ---
 
@@ -460,7 +455,6 @@ Counts are test **cases**; table-driven tests count each input. CI runs both on 
 | Add a description check or positive signal | `scraper/rules.py`, then `web/src/lib/flags.ts` `FLAG_CATEGORIES` and `flags.test.ts` |
 | Change LinkedIn pacing or budget | `scraper/config.json` → `"linkedin"` |
 | Change where one source writes | `scraper/config.json` → `"<source>": {"outputs": [...]}` |
-| Stop writing to the Sheet (Phase 4) | Remove `"sheet"` from `outputs` in `scraper/config.json` |
 | Change run times | `SCRAPER_HOURS` in `apps_script/Code.gs`, then run `installScraperTimers()` |
 | Add a job source | A client module + `collect()`/`evaluate_jobs()`, a workflow step (plus seen-ID cache steps), a migration adding the enum value, `JobSource` in `types.ts`, `sources`/`sourceLabels` in `supabaseApi.ts` (and the labels in `demoApi.ts`/`twoSiteApi.ts`), `DayCount` in `lib/analytics.ts`, and a validated colour in `lib/chartColors.ts` (Himalayas is the example) |
 | Add a database column | A new migration → `db push` → `web/src/data/types.ts` and the `*_COLUMNS` lists in `supabaseApi.ts` → demo data |
@@ -494,13 +488,11 @@ Done:
 - **The LinkedIn rate-limit fix.**
 - **Himalayas as a third source** (2026-10-29).
 - **Duplicates across sites** (2026-10-29).
+- **The Sheet retired** (2026-11-03): Supabase is the only output and `Code.gs` is just the timer.
 
 Open (details in `docs/Plan.md`):
 - **Phase 4 cutover:**
-  - finish the trial period;
-  - remove `"sheet"` from `outputs`;
-  - swap the seen-ID cache for a database lookup;
-  - trim `Code.gs` down to the timer.
+  - swap the seen-ID cache for a database lookup.
 - **Phase 5:** resume bullets (drafted; refresh the numbers in a month). Optional: `VITE_GITHUB_REPO` for run-log links.
 - **Possible next features:**
   - more remote sources if Himalayas proves useful: Jobicy or Remotive, or Greenhouse/Lever/Ashby public job boards for a chosen list of companies (`boards-api.greenhouse.io/v1/boards/<company>/jobs`). A new source needs a client plus `collect()`/`evaluate_jobs()` (see section 10);

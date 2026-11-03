@@ -3,8 +3,6 @@ Himalayas junior developer scraper -> Supabase.
 
 Himalayas (himalayas.app) is a remote-only job board with a public JSON API.
 Uses the same searches, rules.py filters and secrets as scraper.py (JobStreet).
-Writes to Supabase only (config.json "himalayas" -> "outputs"); the Sheet has
-no Himalayas tabs.
 
 Search results already include each job's description and its allowed
 countries and timezones, so there are no per-job requests: a job is dropped

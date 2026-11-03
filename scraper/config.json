@@ -5,7 +5,6 @@
   "seen_ids_retention_days": 120,
   "duplicate_lookback_days": 60,
   "outputs": [
-    "sheet",
     "supabase"
   ],
   "linkedin": {
@@ -14,9 +13,6 @@
     "time_budget_minutes": 20
   },
   "himalayas": {
-    "delay_seconds": 1,
-    "outputs": [
-      "supabase"
-    ]
+    "delay_seconds": 1
   }
 }

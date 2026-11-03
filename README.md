@@ -39,7 +39,7 @@ flowchart LR
 
 ## Engineering notes
 
-- **Migrated from a spreadsheet without downtime.** This started as a Google Sheets prototype. The scraper now writes to a list of outputs; during the move it wrote to the sheet and Postgres in parallel, and every output skips IDs it already has, so failed runs can simply be retried. The sheet's history was imported with a one-off script that never overwrites newer dashboard edits.
+- **Migrated from a spreadsheet without downtime.** This started as a Google Sheets prototype. During the move the scraper wrote to the sheet and Postgres in parallel, and every output skips IDs it already has, so failed runs could simply be retried. The sheet's history was imported with a one-off script that never overwrites newer dashboard edits, and the sheet was then retired.
 - **Rule changes are regression-tested.** The scraper's rules are covered by unit tests and a regression set of real listings I labelled by hand, so the rules can't silently start dropping jobs I wanted. When the hard-coded rules became editable settings, a side-by-side comparison on every real title confirmed the old and new rules behave the same.
 - **Demo mode through the data layer.** Components never call Supabase directly. They use one `DataApi` interface with two implementations, Supabase and in-memory sample data, so the public demo is the same app built with a different flag.
 - **Accessible and responsive.** Light and dark themes, keyboard navigation (including the kanban board), a phone layout for quick triage, and chart colours checked for contrast and colour-blind safety. Every chart can also be viewed as a table.
@@ -69,7 +69,7 @@ scraper/              Python scraper
   scraper.py            one run per job board: search → filter → score → write to the outputs
   rules.py              filtering, flagging and skill scoring, built from the settings
   settings.py           settings validation; defaults in default_settings.json
-  sinks.py              outputs (Supabase REST, spreadsheet), run log, settings loading
+  sinks.py              outputs (Supabase REST), run log, settings loading
   import_sheet.py       one-off import of the spreadsheet history
   tests/                unit, regression and integration tests (fake HTTP)
 supabase/migrations/  schema, row-level security, triggers, settings versions
@@ -77,7 +77,7 @@ web/                  React dashboard
   src/data/             DataApi: Supabase and demo implementations, React Query hooks
   src/lib/              pure logic: filters, analytics, rule validation, entry-level matching
   src/pages/            Jobs, Board, Analytics, Filtered out, Rules
-apps_script/          Apps Script: the twice-daily timer (and the original spreadsheet backend)
+apps_script/          Apps Script: the twice-daily timer
 docs/                 setup guides and screenshots
 ```
 

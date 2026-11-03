@@ -8,21 +8,20 @@ This guide sets up the **GitHub token** the Apps Script timer needs to start the
 Apps Script timer (11:00 / 15:00 Manila)
    │  startScraper() sends a request with GITHUB_TOKEN
    ▼
-GitHub Actions "JobStreet + LinkedIn scraper" (runs like pressing "Run workflow")
-   │  sends SHEET_TOKEN with the results
+GitHub Actions scraper workflow (runs like pressing "Run workflow")
+   │  writes jobs with SUPABASE_SECRET_KEY
    ▼
-Apps Script web app (doPost) checks SECRET_TOKEN ──► writes rows to the sheet
+Supabase
 ```
 
-## All the secrets in this project
+The Google Sheet output, its web app and the Sheet-based Gmail drafts were retired on 2026-11-03 (see "Retiring the Sheet" at the end). `Code.gs` is now only the timer.
 
-| Name | Where it lives | What it's for | Status |
-|---|---|---|---|
-| `SECRET_TOKEN` | Apps Script → Project Settings → Script Properties | Only the scraper can add rows to the sheet | Done (created by `setup()`) |
-| `SHEET_WEBAPP_URL`, `SHEET_TOKEN` | GitHub repo → Settings → Secrets and variables → Actions | The scraper on GitHub knows where to send jobs | Done |
-| `RESUME_FILE_ID` | Top of `Code.gs` (a Drive file ID, not a secret) | Attaches your resume to drafts | Set it if you haven't |
-| `SENDER_NAME`, `SUBJECT_TEMPLATE`, `BODY_TEMPLATE` | Apps Script → Project Settings → Script Properties (optional) | Your name and the email wording for drafts; generic defaults are used if missing | Set before using drafts |
-| **`GITHUB_TOKEN`** | Apps Script → Project Settings → Script Properties | Lets the timer start the GitHub workflow | **This guide** |
+## The secrets the timer uses
+
+| Name | Where it lives | What it's for |
+|---|---|---|
+| **`GITHUB_TOKEN`** | Apps Script → Project Settings → Script Properties | Lets the timer start the GitHub workflow (**this guide**) |
+| `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | GitHub repo → Settings → Secrets and variables → Actions | Lets the scraper write to Supabase (`DASHBOARD_SETUP.md`) |
 
 > Never paste a token into `Code.gs` itself. `Code.gs` is in your GitHub repo, so anyone who can see the repo could read it. Script Properties stay inside Google.
 
@@ -55,12 +54,9 @@ Why this is safe: this token can only start, cancel or view runs of **this one r
    - **Value:** the `github_pat_...` token you copied
 4. Click **Save script properties**.
 
-You should now see both `SECRET_TOKEN` and `GITHUB_TOKEN`, plus `SHEET_ID`.
-
 ## Step 3: Update the code
 
 1. In the editor, open `Code.gs`, replace everything with the latest `apps_script/Code.gs` from this project, and **Save** (Ctrl+S).
-   - You don't need to redeploy the web app. The new functions aren't part of it.
 
 ## Step 4: Test the token (starts nothing)
 
@@ -68,7 +64,7 @@ You should now see both `SECRET_TOKEN` and `GITHUB_TOKEN`, plus `SHEET_ID`.
 2. The first time, Google asks for a new permission, **"Connect to an external service"**. Click **Review permissions**, choose your account, then **Advanced → Go to (project) → Allow**.
 3. The **Execution log** should say:
    ```
-   Token OK. Workflow "JobStreet + LinkedIn scraper" is active.
+   Token OK. Workflow "JobStreet + LinkedIn + Himalayas scraper" is active.
    ```
    If you see an error instead, check the troubleshooting table below.
 
@@ -85,30 +81,6 @@ You should now see both `SECRET_TOKEN` and `GITHUB_TOKEN`, plus `SHEET_ID`.
 
 1. Select **`startScraper`** → **Run**. The log should say `Scraper started on GitHub (HTTP 204)`.
 2. On GitHub → **Actions**, a new run appears within a few seconds, with the event **workflow_dispatch**. Its **Show trigger** step says who started it; that's the token's owner, `CedRaf`.
-
-## Step 7: Re-approve the draft trigger for the other account
-
-Adding the GitHub feature gave `Code.gs` a new permission (external requests). Google may pause the **draft trigger** owned by the drafts account (if it differs from the sheet owner) until that account approves the updated permissions.
-
-1. Sign in as the **drafts account**, open the sheet → **Extensions → Apps Script**.
-2. Run **`installDraftTrigger`** once and approve the permissions. It won't create a duplicate trigger.
-3. Test: set `send_email` to **Yes** on a row, and a draft should appear in that account's Gmail.
-
-## Step 8: Push the workflow change
-
-The workflow file no longer has its own `cron` schedule, so GitHub and Google won't both start runs. Commit and push:
-
-```bash
-git add .github/workflows/scraper.yml apps_script/Code.gs docs/TOKEN_SETUP.md
-```
-
-```bash
-git commit -m "Start scraper from Apps Script timer instead of GitHub cron"
-```
-
-```bash
-git push
-```
 
 ---
 
@@ -136,3 +108,15 @@ If a timer run fails, Google emails a **failure summary** to the account that cr
 - **Different times:** edit `SCRAPER_HOURS` in `Code.gs` (24-hour format, Manila time), save, and run `installScraperTimers` again.
 - **Pause scraping:** run `removeScraperTimers`. You can still start runs by hand from GitHub's **Run workflow** button.
 - **If a token leaks:** delete it on GitHub (Fine-grained tokens → Delete). It stops working immediately. Then make a new one.
+
+## Retiring the Sheet (2026-11-03)
+
+The scraper no longer writes to the Google Sheet. Do these **after** the change is merged to `main`; before that, `main` still writes to the Sheet and a run would fail without it.
+
+1. **GitHub:** repo → Settings → Secrets and variables → Actions → delete `SHEET_WEBAPP_URL` and `SHEET_TOKEN`.
+2. **Apps Script** (open the Sheet → Extensions → Apps Script):
+   1. **Triggers** (clock icon): delete the `handleEdit` trigger(s), in every account that installed one. Keep the two `startScraper` ones.
+   2. **Deploy → Manage deployments:** archive the web app deployment.
+   3. Replace `Code.gs` with the latest `apps_script/Code.gs` (timer only) and save. The timers keep working; there's no need to reinstall them.
+   4. **Project Settings → Script Properties:** delete `SECRET_TOKEN`, `SHEET_ID`, `SENDER_NAME`, `SUBJECT_TEMPLATE` and `BODY_TEMPLATE`. Keep `GITHUB_TOKEN`.
+3. Keep the Sheet itself as an archive; nothing reads or writes it any more.

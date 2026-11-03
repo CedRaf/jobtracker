@@ -1,10 +1,9 @@
 """
-Where scraped jobs go: the Google Sheet (Apps Script web app) and/or Supabase.
+Where scraped jobs go: Supabase.
 
-config.json "outputs" lists the active sinks, e.g. ["sheet", "supabase"].
-Every sink gets every run's results. Both are idempotent (the sheet skips ids
-it already has; Supabase ignores duplicate keys), so a failed run can simply
-be retried.
+config.json "outputs" lists the active sinks (["supabase"]). Every sink gets
+every run's results. Supabase ignores duplicate keys, so a failed run can
+simply be retried. (The Google Sheet output was retired on 2026-11-03.)
 
 Supabase is written through its REST API (PostgREST) with the secret key,
 which bypasses row-level security. Never use that key in the frontend.
@@ -25,8 +24,6 @@ log = logging.getLogger("scraper")
 MANILA = timezone(timedelta(hours=8))
 BATCH_SIZE = 500
 
-# Fields in the scraper's records that the sheet doesn't have columns for.
-NOT_IN_SHEET = ("repost_key", "description")
 
 
 # ===== Record -> database row ================================================
@@ -211,37 +208,6 @@ def load_settings(secrets):
 
 # ===== Sinks =================================================================
 
-class SheetSink:
-    """
-    prefix picks the tabs: "" = Jobs/Filtered, "linkedin_" = LinkedIn/LinkedIn
-    Filtered. doPost reads <prefix>jobs / <prefix>filtered and answers with
-    <prefix>added / <prefix>skipped / <prefix>filtered_added.
-    """
-    name = "sheet"
-
-    def __init__(self, secrets, prefix, post):
-        self.secrets = secrets
-        self.prefix = prefix
-        self.post = post
-
-    def write(self, kept, filtered):
-        if not kept and not filtered:
-            return
-        p = self.prefix
-        jobs = [{k: v for k, v in r.items() if k not in NOT_IN_SHEET} for r in kept]
-        result = self.post(self.secrets, **{f"{p}jobs": jobs, f"{p}filtered": filtered})
-        if f"{p}added" not in result:
-            # Either an older Code.gs that ignores these keys, or the request
-            # reached doGet instead of doPost (a redirect turned the POST into a
-            # GET, e.g. an http:// or /dev URL). Nothing was written either way.
-            raise RuntimeError(
-                f"The Apps Script web app's reply has no '{p}added' count, so nothing was written. "
-                "Check SHEET_WEBAPP_URL is exactly https://script.google.com/macros/s/<id>/exec, "
-                f"and that the deployed Code.gs is the latest. Reply: {str(result)[:200]}")
-        log.info("Sheet updated: %s added, %s already there; filtered tab: %s added",
-                 result.get(f"{p}added"), result.get(f"{p}skipped"), result.get(f"{p}filtered_added"))
-
-
 class SupabaseSink:
     name = "supabase"
 
@@ -268,29 +234,26 @@ def supabase_client(secrets):
 def output_names(cfg, source):
     """
     The outputs for one source: its own "outputs" in config.json if it has one
-    (e.g. "himalayas": {"outputs": ["supabase"]}), otherwise the shared list.
+    (e.g. "jobstreet": {"outputs": [...]}), otherwise the shared list.
     """
-    return cfg.get(source, {}).get("outputs") or cfg.get("outputs", ["sheet"])
+    return cfg.get(source, {}).get("outputs") or cfg.get("outputs", ["supabase"])
 
 
-def build_sinks(cfg, secrets, source, sheet_prefix, post_to_sheet):
+def build_sinks(cfg, secrets, source):
     """
     Returns (sinks, missing): the configured outputs that have credentials,
     and the names of those that don't.
     """
     sinks, missing = [], []
     for name in output_names(cfg, source):
-        if name == "sheet":
-            if secrets.get("webapp_url") and secrets.get("token"):
-                sinks.append(SheetSink(secrets, sheet_prefix, post_to_sheet))
-            else:
-                missing.append(name)
-        elif name == "supabase":
+        if name == "supabase":
             client = supabase_client(secrets)
             if client:
                 sinks.append(SupabaseSink(client, source))
             else:
                 missing.append(name)
+        elif name == "sheet":
+            raise ValueError('The Google Sheet output was retired; remove "sheet" from config.json outputs.')
         else:
             raise ValueError(f"Unknown output in config.json: {name!r}")
     return sinks, missing

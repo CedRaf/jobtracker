@@ -1,5 +1,5 @@
 """
-JobStreet PH junior developer scraper -> Google Sheet and/or Supabase.
+JobStreet PH junior developer scraper -> Supabase.
 
 Usage:
     python scraper.py              # normal run
@@ -10,8 +10,8 @@ Settings:
 - Search terms and filter rules: edited in the dashboard (Settings page) and
   loaded from Supabase each run; defaults in default_settings.json (settings.py).
 - config.json: operational settings, and "outputs" (where jobs go).
-- secrets.json or environment variables (GitHub Actions): SHEET_WEBAPP_URL /
-  SHEET_TOKEN for the sheet, SUPABASE_URL / SUPABASE_SECRET_KEY for Supabase.
+- secrets.json or environment variables (GitHub Actions): SUPABASE_URL /
+  SUPABASE_SECRET_KEY.
 Log: logs/scraper.log
 """
 
@@ -44,6 +44,8 @@ OUTPUT_DIR = ROOT / "output"
 
 MANILA = timezone(timedelta(hours=8))
 PAGE_SIZE = 30
+# Too long for a CSV row; dry runs leave them out.
+NOT_IN_CSV = ("repost_key", "description")
 
 log = logging.getLogger("scraper")
 
@@ -69,8 +71,6 @@ def load_json(path, default=None):
 def load_secrets():
     secrets = load_json(SECRETS_FILE, {})
     # GitHub Actions passes these as environment variables instead of secrets.json.
-    secrets["webapp_url"] = os.environ.get("SHEET_WEBAPP_URL") or secrets.get("webapp_url")
-    secrets["token"] = os.environ.get("SHEET_TOKEN") or secrets.get("token")
     secrets["supabase_url"] = os.environ.get("SUPABASE_URL") or secrets.get("supabase_url")
     secrets["supabase_secret_key"] = (os.environ.get("SUPABASE_SECRET_KEY")
                                       or secrets.get("supabase_secret_key"))
@@ -342,42 +342,13 @@ def evaluate_jobs(session, cfg, candidates, seen):
     return kept, filtered, expired
 
 
-def post_to_sheet(secrets, **records):
-    """records: lists keyed by what doPost expects, e.g. jobs=..., filtered=..."""
-    # Google's redirect to the response sometimes 404s or times out. Retrying is
-    # safe: the sheet skips ids it already has.
-    for wait in [15, 45, None]:
-        try:
-            resp = requests.post(
-                secrets["webapp_url"],
-                json={"token": secrets["token"], **records},
-                timeout=120,
-            )
-            resp.raise_for_status()
-            break
-        except requests.RequestException as e:
-            if wait is None:
-                raise
-            log.warning("Posting to the sheet failed (%s); retrying in %ds", e, wait)
-            time.sleep(wait)
-    try:
-        data = resp.json()
-    except ValueError:
-        raise RuntimeError(
-            "Web app did not return JSON. Check the deployment's access is 'Anyone'. "
-            f"Response starts with: {resp.text[:200]!r}") from None
-    if not data.get("ok"):
-        raise RuntimeError(f"Web app error: {data.get('error')}")
-    return data
-
-
 def write_csvs(kept, filtered, prefix=""):
     OUTPUT_DIR.mkdir(exist_ok=True)
     stamp = datetime.now(MANILA).strftime("%Y%m%d_%H%M")
     for name, rows in (("jobs", kept), ("filtered", filtered)):
         if not rows:
             continue
-        rows = [{k: v for k, v in r.items() if k not in sinks.NOT_IN_SHEET} for r in rows]
+        rows = [{k: v for k, v in r.items() if k not in NOT_IN_CSV} for r in rows]
         path = OUTPUT_DIR / f"{prefix}{name}_{stamp}.csv"
         with path.open("w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
@@ -399,7 +370,7 @@ def save_seen(seen, new_ids, retention_days, path=SEEN_FILE):
 def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix=""):
     """
     One full run for one job source: search, evaluate, send to the outputs,
-    then mark the jobs as seen. prefix picks the sheet tabs and CSV names.
+    then mark the jobs as seen. prefix starts the CSV file names.
     """
     cfg = load_json(CONFIG_FILE)
     secrets = load_secrets()
@@ -435,7 +406,7 @@ def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix=
             write_csvs(kept, filtered, prefix)
             log.info("Dry run: nothing sent anywhere, seen list not updated.")
             return
-        outputs, missing = sinks.build_sinks(cfg, secrets, source, prefix, post_to_sheet)
+        outputs, missing = sinks.build_sinks(cfg, secrets, source)
         if not outputs:
             write_csvs(kept, filtered, prefix)
             log.warning("No credentials for any output (%s); wrote CSVs instead.", ", ".join(missing))

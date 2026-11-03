@@ -268,10 +268,10 @@ The search terms and filter rules used to be hard-coded in `scraper/rules.py` an
   - `scraper.yml`: the LinkedIn step has its own 30-minute limit, so it can never use up the whole job.
   - Tests: `scraper/tests/test_linkedin.py`.
   - LinkedIn rate-limits shared cloud IPs (like GitHub's) much more than home connections, so some runs may still get partial LinkedIn results. JobStreet is unaffected because it runs first.
-- [ ] Use the dashboard daily for 1–2 weeks while dual-writing.
-- [ ] Remove `"sheet"` from `outputs`, keeping the code so it's a one-line rollback.
+- [x] Use the dashboard daily for 1–2 weeks while dual-writing. Done: the deployed dashboard is the only thing in use.
+- [x] **Sheet retired (2026-11-03).** `"sheet"` is out of `outputs`, and the Sheet code is removed rather than kept for a rollback (git history has it): `SheetSink`, `post_to_sheet`, the Sheet secrets in `scraper.yml` and `secrets.example.json`. A leftover `"sheet"` in `outputs` now fails with a message saying it was retired. The Sheet stays as an archive; clean-up of the GitHub secrets and Apps Script in `docs/TOKEN_SETUP.md`.
 - [ ] Replace the Actions-cache `seen_ids.json` with a database lookup of known ids. This removes the cache steps from `scraper.yml`.
-- [ ] Trim `Code.gs` down to the timer (`startScraper`, `installScraperTimers`, `githubRequest_`). Keep the sheet itself as an archive.
+- [x] `Code.gs` trimmed down to the timer (`installScraperTimers`, `removeScraperTimers`, `startScraper`, `checkGitHubToken`, `githubRequest_`). The Sheet-based Gmail drafts went with it; the dashboard's "Draft in Gmail" replaces them.
 
 ### Phase 5: Portfolio polish
 - [ ] **Optional: link scraper runs to their GitHub logs.** Set `VITE_GITHUB_REPO=CedRaf/jobtracker` in `web/.env.local` and in Vercel's environment variables. The "All runs" table on the Analytics page then gets a link per run. It's a frontend setting (not a GitHub secret). Once the repo is public, anyone can open those run logs.

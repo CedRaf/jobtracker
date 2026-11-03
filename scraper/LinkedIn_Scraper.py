@@ -1,5 +1,5 @@
 """
-LinkedIn junior developer scraper -> Google Sheet ("LinkedIn" tab) and/or Supabase.
+LinkedIn junior developer scraper -> Supabase.
 
 Personal and educational use only. LinkedIn's User Agreement prohibits
 scraping, whatever the purpose. This reads public, logged-out job listings at
@@ -8,7 +8,7 @@ search; nothing it collects is published or redistributed. It isn't offered
 as a feature or a product, and the public demo leaves LinkedIn out.
 
 Uses the same config.json searches and outputs, rules.py filters and secrets
-as scraper.py (JobStreet); only the job source and the sheet tabs differ.
+as scraper.py (JobStreet); only the job source differs.
 
 Usage:
     python LinkedIn_Scraper.py              # normal run

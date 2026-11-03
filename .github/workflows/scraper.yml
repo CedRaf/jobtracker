@@ -36,7 +36,7 @@ jobs:
       - run: pip install -r scraper/requirements.txt
 
       # Runners start empty each time; carry the "already seen" job list over
-      # between runs so job details aren't re-fetched. (The sheet dedups anyway.)
+      # between runs so job details aren't re-fetched. (Supabase skips duplicates anyway.)
       - name: Restore seen job IDs
         uses: actions/cache/restore@v4
         with:
@@ -60,8 +60,6 @@ jobs:
 
       - name: Run scraper
         env:
-          SHEET_WEBAPP_URL: ${{ secrets.SHEET_WEBAPP_URL }}
-          SHEET_TOKEN: ${{ secrets.SHEET_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           LIMIT: ${{ inputs.limit }}
@@ -76,8 +74,6 @@ jobs:
         # can't use up the whole job and stop the seen-ID caches being saved.
         timeout-minutes: 30
         env:
-          SHEET_WEBAPP_URL: ${{ secrets.SHEET_WEBAPP_URL }}
-          SHEET_TOKEN: ${{ secrets.SHEET_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           LIMIT: ${{ inputs.limit }}
@@ -85,7 +81,6 @@ jobs:
         run: python LinkedIn_Scraper.py ${LIMIT:+--limit "$LIMIT"}
 
       # Himalayas' public JSON API: a handful of requests, no per-job fetches.
-      # Writes to Supabase only (config.json "himalayas" -> "outputs").
       - name: Run Himalayas scraper
         if: ${{ !cancelled() }}
         timeout-minutes: 10
