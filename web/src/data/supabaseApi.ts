@@ -1,5 +1,7 @@
 import { createClient, type User } from '@supabase/supabase-js'
-import type { AppUser, DataApi, FilteredJob, Job, JobKey, ScrapeRun, SettingsVersion, StatusChange } from './types'
+import type {
+  AppUser, DataApi, FilteredJob, Job, JobKey, ScrapeRun, ScraperDispatch, SettingsVersion, StatusChange,
+} from './types'
 
 // Everything except the description, which is only loaded for the open job.
 const JOB_COLUMNS = [
@@ -16,6 +18,8 @@ const RUN_COLUMNS =
   'source,started_at,finished_at,found,evaluated,kept,filtered,expired,error,github_run_id,settings_version'
 
 const SETTINGS_COLUMNS = 'version,settings,note,created_at'
+
+const DISPATCH_COLUMNS = 'slot,sources,status_code,error,created_at'
 
 const HISTORY_COLUMNS = 'job_source,job_external_id,from_status,to_status,changed_at'
 
@@ -79,7 +83,7 @@ export function createSupabaseApi(url: string, publishableKey: string): DataApi 
         .select(JOB_COLUMNS)
         .single<Job>()
       if (error) throw error
-      return data
+      return data ?? []
     },
 
     listFilteredJobs(days) {
@@ -96,12 +100,13 @@ export function createSupabaseApi(url: string, publishableKey: string): DataApi 
     },
 
     async latestScrapeRuns() {
-      // Two sources, so the newest few rows always include both.
+      // Sites run on their own schedules (up to 6 runs a day each), so look far
+      // enough back that a site running once a day is still in the window.
       const { data, error } = await supabase
         .from('scrape_runs')
         .select(RUN_COLUMNS)
         .order('started_at', { ascending: false })
-        .limit(10)
+        .limit(40)
         .returns<ScrapeRun[]>()
       if (error) throw error
       return latestPerSource(data ?? [])
@@ -118,6 +123,17 @@ export function createSupabaseApi(url: string, publishableKey: string): DataApi 
           .range(from, to)
           .returns<ScrapeRun[]>(),
       )
+    },
+
+    async listDispatches(limit) {
+      const { data, error } = await supabase
+        .from('scraper_dispatches')
+        .select(DISPATCH_COLUMNS)
+        .order('created_at', { ascending: false })
+        .limit(limit)
+        .returns<ScraperDispatch[]>()
+      if (error) throw error
+      return data
     },
 
     async listSettingsVersions() {

@@ -137,3 +137,16 @@ def test_scrape_filters_duplicates_before_evaluating(monkeypatch, tmp_path):
     assert evaluated == ["2"]
     assert [(f["id"], f["reason"]) for f in written["filtered"]] == [
         ("1", "duplicate posting (also on JobStreet)")]
+
+
+def test_a_switched_off_site_does_nothing(monkeypatch, tmp_path):
+    monkeypatch.setattr(scraper, "load_json",
+                        lambda path, default=None: {} if path == scraper.CONFIG_FILE else default)
+    off = sinks.settings_module.validate({"sources": {"himalayas": {"enabled": False}}})
+    monkeypatch.setattr(sinks, "load_settings", lambda secrets: (off, 9))
+    monkeypatch.setattr(sinks, "run_log", lambda *a, **kw: pytest.fail("no run-log row when switched off"))
+
+    def collect(session, cfg):
+        pytest.fail("a switched-off site makes no requests")
+
+    scraper.scrape(Args(), "himalayas", None, collect, None, tmp_path / "seen.json")

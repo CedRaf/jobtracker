@@ -13,7 +13,7 @@ web
 
 ## Product Purpose
 
-JobTracker turns a twice-daily scrape of JobStreet PH and LinkedIn into a personal application tracker. The scraper filters and flags listings with regex rules; the dashboard is where the owner decides what to apply to, records what happened (applied, emailed, interview, offer, rejected, skip) and spots rules that are too strict.
+JobTracker turns scheduled scrapes of JobStreet PH, LinkedIn and Himalayas into a personal application tracker. The scraper filters and flags listings with regex rules; the dashboard is where the owner decides what to apply to, records what happened (applied, emailed, interview, offer, rejected, skip) and spots rules that are too strict.
 
 Success: the daily review of new listings is fast, nothing new is missed, status changes take one action, and over-strict rules are easy to see.
 

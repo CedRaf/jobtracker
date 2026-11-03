@@ -80,6 +80,11 @@ export function useScrapeRuns(days: number) {
   return useQuery({ queryKey: ['scrapeRuns', days], queryFn: () => api.listScrapeRuns(days) })
 }
 
+export function useDispatches() {
+  const api = useApi()
+  return useQuery({ queryKey: ['dispatches'], queryFn: () => api.listDispatches(5) })
+}
+
 const SETTINGS = ['settingsVersions'] as const
 
 export function useSettingsVersions() {

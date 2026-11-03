@@ -6,7 +6,7 @@ Related documents:
 - `README.md`: the public introduction.
 - `docs/Plan.md`: the phase-by-phase history, decisions and open to-dos.
 - `docs/DASHBOARD_SETUP.md`: creating the login and deploying.
-- `docs/TOKEN_SETUP.md`: the Apps Script timer's GitHub token.
+- `docs/SCHEDULER_SETUP.md`: connecting the database scheduler to GitHub (the Vault token).
 - `PRODUCT.md`: product context for design work.
 
 ---
@@ -23,7 +23,7 @@ Everything is hosted on free tiers, and nothing runs on your own machine.
 
 | Piece | Runs on |
 |---|---|
-| Scraper | GitHub Actions, started by a Google Apps Script timer at 11:00 and 15:00 Manila time |
+| Scraper | GitHub Actions, started by a `pg_cron` scheduler in Supabase at each site's times (set on the dashboard) |
 | Database and login | Supabase |
 | Your dashboard | Vercel project #1 (real data, behind a login) |
 | Public demo | Vercel project #2 (built-in sample data, no login): https://jobtracker-live-demo.vercel.app/ |
@@ -33,13 +33,13 @@ Everything is hosted on free tiers, and nothing runs on your own machine.
 ## 2. System architecture
 
 ```
-                          (11:00 / 15:00 Manila)
- Google Apps Script timer ──"Run workflow" via GitHub API──▶ GitHub Actions: scraper.yml
- (apps_script/Code.gs)                                          │
-                                                                │ 1. python scraper.py         (JobStreet)
-                                                                │ 2. python LinkedIn_Scraper.py
-                                                                │ 3. python Himalayas_Scraper.py
-                                                                ▼
+   Supabase pg_cron, every 15 min       (each site's times: Rules → Schedule)
+ dispatch_due_scrapers() ──"Run workflow" via GitHub API (pg_net)──▶ GitHub Actions: scraper.yml
+ (logs to scraper_dispatches)        sources="jobstreet,…"          │
+                                                                    │ 1. python scraper.py      (JobStreet, if due)
+                                                                    │ 2. python LinkedIn_Scraper.py  (if due)
+                                                                    │ 3. python Himalayas_Scraper.py (if due)
+                                                                    ▼
                       ┌──── reads the newest settings version ──── Supabase ◀── upsert jobs, filtered jobs,
                       │                                           (Postgres)     run log (secret key)
    job boards ◀── search + details ── scraper (rules.py)  ─────────────┘
@@ -52,8 +52,8 @@ Everything is hosted on free tiers, and nothing runs on your own machine.
 
 The flow is `scraper.scrape()`, shared by both job boards:
 1. Load `config.json` (operational settings) and secrets (environment variables on GitHub Actions, or `scraper/secrets.json` locally).
-2. Start a `scrape_runs` row (the run log).
-3. Load the **newest scraper settings version** from Supabase. If there's none, it can't be fetched, or it's invalid, use `default_settings.json`. The run never fails because of settings.
+2. Load the **newest scraper settings version** from Supabase. If there's none, it can't be fetched, or it's invalid, use `default_settings.json`. The run never fails because of settings. **If this site is switched off** (`sources`), stop here, with no run-log row.
+3. Start a `scrape_runs` row (the run log).
 4. Compile the rules from the settings (`rules.configure`).
 5. **Collect:** run every search (keyword × {home city, remote elsewhere}) and merge the results by job ID.
 6. Skip jobs already **seen** in earlier runs (`data/*seen_ids.json`, carried between runs by the GitHub Actions cache).
@@ -82,8 +82,7 @@ The flow is `scraper.scrape()`, shared by both job boards:
 ```
 .github/workflows/
   ci.yml                 lint + tests + build on every push / PR (scraper and web jobs)
-  scraper.yml            the scraper run (manual "Run workflow"; started by Apps Script)
-apps_script/Code.gs      Google Apps Script: the twice-daily timer
+  scraper.yml            the scraper run (manual "Run workflow"; started by the Supabase scheduler)
 docs/                    Plan.md, this file, setup guides, screenshots/ (README images)
 PRODUCT.md               product context (users, principles) for design work
 README.md                public introduction
@@ -107,7 +106,7 @@ scraper/
 
 supabase/
   config.toml            Supabase CLI config (local-dev settings only, no secrets)
-  migrations/            the schema, applied with `npx supabase db push`
+  migrations/            the schema, applied with `npx supabase db push --remote`
 
 web/                     the dashboard (Vite + React + TypeScript)
   index.html, vite.config.ts (incl. Vitest config), vercel.json (SPA rewrites), .env.example
@@ -179,11 +178,13 @@ The rules come from settings (section 4.5). How matching works is fixed in code:
   - `skills`: name, weight, aliases, exclude, off_stack
   - `other_stacks`
   - `previous_employers`
+  - `sources`: per site, `enabled` and `times` (Manila `"HH:MM"` on a 15-minute grid, at most 6, different times across switched-on sites at least 30 minutes apart; see section 7.1)
 - **`validate(raw)`** returns complete, cleaned settings. Missing sections or keys come from the defaults, words are trimmed and de-duplicated, and anything malformed raises `SettingsError` with a readable path (e.g. `skills[3].weight`).
 - **`search_config()`** maps the settings onto the older config key names the scrapers use.
 - **The defaults exist in three places, kept identical by tests:**
   - `scraper/default_settings.json`
-  - the migration's version-1 seed (sections added later, like `entry_level`, are allowed to be missing there)
+  - the migration's version-1 seed (sections added later, `entry_level` and `sources`, are allowed to be missing there)
+  - and for `sources` only, `scraper_default_sources()` in the scheduler migration (used for versions without `sources`)
   - `web/src/data/defaultSettings.json`
 
 ### 4.6 Outputs and the run log (`sinks.py`)
@@ -207,7 +208,7 @@ The rules come from settings (section 4.5). How matching works is fixed in code:
   - **Company:** a leading "the" and trailing suffixes (Inc, Corp, Ltd, Pty, LLC, Philippines, …) are dropped, so "Hunt St Pty Ltd" matches "Hunt St".
   - No key (so no match) without both a title and a company.
 - **Deliberately exact-match, not fuzzy:** a missed duplicate costs a few seconds of review, but a wrong match hides a real job. `tests/test_duplicates.py` has cases for both, including different roles at the same company.
-- **The first site wins.** The workflow runs JobStreet → LinkedIn → Himalayas, each delivering before the next starts, so a later site's copy is the one filtered, with the earlier site's name in the reason.
+- **The first site wins.** Whichever site's run finds a job first keeps it; a later site's copy is filtered, with the earlier site's name in the reason. Sites scheduled at the same time run in one workflow, in the order JobStreet → LinkedIn → Himalayas, each delivering before the next starts.
 - **Fail-safe:** the lookup reads every recent job and skips the run's own site in Python, not with `source=neq.…`, so it also works before a new source's enum migration is pushed. Any error just skips the cross-site check.
 - Checked against the real data on 2026-10-29: 1 cross-site duplicate among 223 kept jobs (the same Hunt St role on LinkedIn and JobStreet), and no wrong matches.
 
@@ -225,6 +226,7 @@ The rules come from settings (section 4.5). How matching works is fixed in code:
 | `scrape_runs` | One row per run per source | found / evaluated / kept / filtered / expired, error (null = OK), `github_run_id`, `settings_version` |
 | `scraper_settings_versions` | Append-only settings versions | The newest is current; restoring inserts an old one again. Version 1 = defaults |
 | `app_users` | Who may use the dashboard | Your auth user ID; no policies, so only the SQL editor or the secret key can change it |
+| `scraper_dispatches` | Every request the scheduler sent GitHub | `slot` (unique: one run per 15-minute slot; null when started by hand), `sources[]`, GitHub's `status_code` (204 = started) or `error`. App users can read it; only the database writes it |
 
 Enums: `job_source` (`jobstreet`, `linkedin`, `himalayas`) and `job_status` (`new`, `applied`, `emailed`, `interview`, `offer`, `rejected`, `skip`).
 
@@ -235,12 +237,20 @@ Enums: `job_source` (`jobstreet`, `linkedin`, `himalayas`) and `job_status` (`ne
 - **The scraper uses the secret key** (service role), which bypasses RLS and is held only in GitHub secrets.
 - **The dashboard uses the publishable key,** which is safe in the browser.
 
-### 5.3 Triggers
+### 5.3 The scheduler (`*_scheduler.sql`)
+- **`pg_cron`** runs `dispatch_due_scrapers()` every 15 minutes (UTC; the functions convert to Manila).
+- **`scraper_due_sources(at)`** reads the newest settings version's `sources` (each site's saved values over `scraper_default_sources()`) and returns the switched-on sites with a time in `at`'s 15-minute slot.
+- **`dispatch_scrapers(sources, slot)`** inserts the log row first (a slot already used returns null, so it never starts two runs), reads the token from **Vault** (`github_scraper_token`) and sends GitHub's "run workflow" request through **`pg_net`** with `inputs.sources`. Callable by hand from the SQL editor to test.
+- **`record_dispatch_replies()`** copies pg_net's replies (kept about 6 hours) into the log on each tick.
+- All of these are `security definer` with `search_path = ''`; `execute` is revoked from `public`, `anon` and `authenticated`, so only the database and the service role can start runs.
+- **Tested** on a local Postgres 18 with stand-ins for `cron`, `net` and `vault` (time zones, slots, fallbacks, the one-run-per-slot guard, the missing-token message, the request body, replies and permissions). Supabase's real `pg_cron` and `pg_net` are only exercised once pushed: `docs/SCHEDULER_SETUP.md` Step 3.
+
+### 5.4 Triggers
 - `jobs_before_update` sets `updated_at`, and `status_changed_at` when the status changes.
 - `jobs_log_status_change` (security definer) inserts into `status_history` on each status change.
 
-### 5.4 Changing the schema
-- Add a new file in `supabase/migrations/` (never edit an applied one), run `npx supabase db push`, then `npx supabase migration list` to confirm.
+### 5.5 Changing the schema
+- Add a new file in `supabase/migrations/` (never edit an applied one), run `npx supabase db push --remote`, then `npx supabase migration list --remote` to confirm.
 - Don't change tables in the Supabase dashboard; the repo and database would drift apart.
 - **Order matters:** push migrations *before* deploying dashboard code that reads new columns.
 
@@ -281,6 +291,7 @@ Components never call Supabase directly. Everything goes through one interface.
   - jobs: list, description, update
   - filtered jobs
   - scrape runs: latest, and the last N days
+  - scheduler dispatches: the latest few
   - status history
   - settings versions: list and save
   - `auth`
@@ -295,7 +306,7 @@ Components never call Supabase directly. Everything goes through one interface.
   - Shows **one generically named site**.
 - **`api.ts`:** picks the implementation. Demo when `VITE_DEMO=true` or the mode is `demo` (`npm run dev:demo` / `build:demo`), otherwise Supabase from the `VITE_` variables. It also decides whether the cache is saved (never in demo).
 - **`hooks.ts`:** the TanStack Query hooks every component uses.
-  - `useJobs`, `useJobDescription`, `useUpdateJob` (optimistic, with rollback, and invalidates status history), `useFilteredJobs`, `useLatestScrapeRuns`, `useScrapeRuns`, `useStatusHistory`, `useSettingsVersions`, `useSaveSettings` (puts the new version into the cache at once).
+  - `useJobs`, `useJobDescription`, `useUpdateJob` (optimistic, with rollback, and invalidates status history), `useFilteredJobs`, `useLatestScrapeRuns`, `useScrapeRuns`, `useDispatches`, `useStatusHistory`, `useSettingsVersions`, `useSaveSettings` (puts the new version into the cache at once).
   - `useSources` and `useSourceLabel`: with **one** site, the UI leaves site names out entirely ("26 of 49 jobs", "Last run").
 - **`queryCache.ts`:** the query client and its persistence.
   - 60 s stale time, refetch on window focus, 1 retry.
@@ -319,7 +330,7 @@ Components never call Supabase directly. Everything goes through one interface.
   - Dropping a card on Skip asks for an optional reason.
   - **Input:** touch uses press-and-hold; on the keyboard, Enter opens a card and Space picks it up.
 - **Analytics (`AnalyticsPage.tsx`):**
-  - **Scraper health:** last run per site, success rate over 14 days, and a stale warning after 24 hours; runs are OK / Failed / Running / Interrupted (unfinished after an hour).
+  - **Scraper health:** last run per site (marked when switched off), the next scheduled run, success rate over 14 days, a stale warning after 24 hours for scheduled sites only, and an error when the scheduler couldn't start the last run (`lib/schedule.ts` `dispatchProblem`); runs are OK / Failed / Running / Interrupted (unfinished after an hour).
   - Headline tiles.
   - Charts: new jobs per day, the funnel, filter reasons, your skills in demand, other stacks.
   - Every chart can also show its data as a table. Period: 30 / 90 / 365 days.
@@ -329,7 +340,7 @@ Components never call Supabase directly. Everything goes through one interface.
   - The URL keeps `?days=&rule=`, so other pages can link straight to a group.
   - "Edit rule" links to the matching place on the Rules page (`lib/ruleLinks.ts`).
 - **Rules (`SettingsPage.tsx`):**
-  - Tabs: Search, Entry-level, Title rules (with drop counts), Description checks, Skills, Other stacks.
+  - Tabs: Search, Entry-level, Title rules (with drop counts), Description checks, Skills, Other stacks, Schedule (each site's switch and start times; warns when every site is off).
   - Built with an antd `Form` and `Form.List`; tag inputs for word lists (Enter or comma adds one).
   - A save bar with an optional note.
   - Validation mirrors the scraper's (`lib/scraperSettings.ts`), so a saved version is never rejected.
@@ -350,7 +361,8 @@ Components never call Supabase directly. Everything goes through one interface.
 - `filters.ts`: the job filters, filter choices and the "new since last visit" test.
 - `analytics.ts`: jobs per day, skill demand, the funnel and response rate, median days to a response, run state, stale sources and success rate.
 - `entryLevel.ts`: a **port of the scraper's `phrase_pattern`**, the Entry-level marker (title words, or description signals) and its sort rank, plus `useEntryLevel()` (current settings, or the defaults).
-- `scraperSettings.ts`: normalising settings, `settingsProblems()` (mirrors `settings.py`) and `changedSections()` for the history.
+- `scraperSettings.ts`: normalising settings, `settingsProblems()` (mirrors `settings.py`, including the schedule rules) and `changedSections()` for the history.
+- `schedule.ts`: `nextStart()` (the next scheduled run, Manila time), `scheduledSources()`, `dispatchProblem()` (why the scheduler's last request didn't start a run) and `useSchedule()`.
 - `flags.ts`: `FLAG_CATEGORIES`. These **must match the flags `rules.py` emits**, and a test lists them all.
 - `reasons.ts`: groups filter reasons ("seniority title (Senior)" → "seniority title") and never reveals the hidden match score.
 - `ruleLinks.ts`: maps filter reasons to their place on the Rules page and back.
@@ -369,17 +381,20 @@ Components never call Supabase directly. Everything goes through one interface.
 ## 7. Automation and deployment
 
 ### 7.1 Scheduling
-- **GitHub's own cron ran hours late,** so `scraper.yml` has **no schedule**. Instead, `apps_script/Code.gs` `startScraper()` runs at 11:00 and 15:00 Manila time (installed with `installScraperTimers()`). It calls GitHub's "run workflow" API for `GITHUB_REPO` (`CedRaf/jobtracker`), using a fine-grained token stored in a Script Property.
-- **The Google Sheet was retired on 2026-11-03.** `Code.gs` no longer serves it (`doPost`) or makes Sheet-based Gmail drafts; drafts come from the dashboard's "Draft in Gmail". The Sheet is kept as an archive. Clean-up steps: `docs/TOKEN_SETUP.md`, "Retiring the Sheet".
+- **GitHub's own cron ran hours late,** so `scraper.yml` has **no schedule**. Supabase starts it instead (section 5.3): each site has its own on/off switch and start times on **Rules → Schedule**, and every 15 minutes `pg_cron` starts the due sites through GitHub's "run workflow" API, passing them in the `sources` input. Setup: `docs/SCHEDULER_SETUP.md`.
+- **Why different times must be 30+ minutes apart:** `scraper.yml`'s concurrency group allows one running and one waiting run, and a newer waiting run *replaces* the older one. Close start times could silently drop a site's run; sites that share a time go into one run instead. Both validators enforce it.
+- **History:** a Google Apps Script timer did this at fixed hours until 2026-11-03, when the database scheduler replaced it (the same day the Google Sheet output was retired). The Sheet is kept as an archive.
 
 ### 7.2 GitHub Actions
 - **`scraper.yml`**, one job (45-minute limit):
   1. restore the seen-ID caches;
   2. JobStreet;
   3. LinkedIn (30-minute step limit);
-  4. Himalayas (10-minute step limit; needs only the Supabase secrets);
+  4. Himalayas (10-minute step limit);
   5. save the caches;
   6. upload the logs.
+
+  Each site's step runs only if the `sources` input names it; blank (a manual run) means every site, and a switched-off site exits on its own.
 - Its secrets are `SUPABASE_URL` and `SUPABASE_SECRET_KEY`.
 - **`ci.yml`** runs on every push and pull request. The `scraper` job runs ruff + pytest; the `web` job runs `npm ci`, lint, Vitest and the build.
 
@@ -395,7 +410,7 @@ Components never call Supabase directly. Everything goes through one interface.
 |---|---|
 | Supabase secret key | GitHub Actions secrets; locally only in gitignored `scraper/secrets.json` (delete it when not needed) |
 | Supabase publishable key | Vercel (personal project) and `web/.env.local`; safe in the browser |
-| GitHub token for the timer | Apps Script property `GITHUB_TOKEN` |
+| GitHub token for the scheduler | Supabase Vault secret `github_scraper_token` (`docs/SCHEDULER_SETUP.md`) |
 | Email template | your browser's localStorage |
 
 No real secret has ever been committed (history checked 2026-10-26). The repo is public.
@@ -404,17 +419,17 @@ No real secret has ever been committed (history checked 2026-10-26). The repo is
 
 ## 8. Testing
 
-| Suite | Where | Count (2026-10-29) | Run with |
+| Suite | Where | Count (2026-11-03) | Run with |
 |---|---|---|---|
-| Scraper | `scraper/tests/` | **199** test cases | `cd scraper && ../.venv/Scripts/python.exe -m pytest` |
-| Dashboard | `web/src/**/*.test.ts(x)` | **114** test cases in 16 files | `cd web && npm test` |
+| Scraper | `scraper/tests/` | **214** test cases | `cd scraper && ../.venv/Scripts/python.exe -m pytest` |
+| Dashboard | `web/src/**/*.test.ts(x)` | **139** test cases in 17 files | `cd web && npm test` |
 
 Counts are test **cases**; table-driven tests count each input. CI runs both on every push.
 
 **What's covered**
 - **`test_rules.py`:** title drops, location, experience parsing, night shift / foreign hours / language, flags, skills, and email/form extraction.
 - **`test_regression.py`:** real listings you labelled by hand (`fixtures/labelled_jobs.json`, anonymised). Jobs you applied to must never be dropped, and at least 20 of the 46 you skipped must still be caught (`MIN_SKIPS_CAUGHT`; raise it when the rules improve).
-- **`test_settings.py`:** validation, defaults in all three places, settings changing the rules, and settings loading with fallbacks.
+- **`test_settings.py`:** validation (including the schedule's times and the 30-minute gap), defaults in every place they're kept, settings changing the rules, and settings loading with fallbacks.
 - **`test_sinks.py`:** row conversion, the REST client (headers, batching, retries), outputs, delivery and the run log. All against fake HTTP, with no network.
 - **`test_linkedin.py`:** 429 handling, `Retry-After`, stopping early, the time budget and page limits.
 - **`test_duplicates.py`:** the cross-site key (same jobs formatted differently must match; different roles must not), the lookup and its fallbacks, and duplicates being filtered before evaluation in a run.
@@ -455,7 +470,7 @@ Counts are test **cases**; table-driven tests count each input. CI runs both on 
 | Add a description check or positive signal | `scraper/rules.py`, then `web/src/lib/flags.ts` `FLAG_CATEGORIES` and `flags.test.ts` |
 | Change LinkedIn pacing or budget | `scraper/config.json` → `"linkedin"` |
 | Change where one source writes | `scraper/config.json` → `"<source>": {"outputs": [...]}` |
-| Change run times | `SCRAPER_HOURS` in `apps_script/Code.gs`, then run `installScraperTimers()` |
+| Change run times or switch a site off | Dashboard → **Rules → Schedule** |
 | Add a job source | A client module + `collect()`/`evaluate_jobs()`, a workflow step (plus seen-ID cache steps), a migration adding the enum value, `JobSource` in `types.ts`, `sources`/`sourceLabels` in `supabaseApi.ts` (and the labels in `demoApi.ts`/`twoSiteApi.ts`), `DayCount` in `lib/analytics.ts`, and a validated colour in `lib/chartColors.ts` (Himalayas is the example) |
 | Add a database column | A new migration → `db push` → `web/src/data/types.ts` and the `*_COLUMNS` lists in `supabaseApi.ts` → demo data |
 | Show the match score again | `web/src/lib/settings.ts` → `SHOW_MATCH_SCORE = true` |
@@ -473,7 +488,7 @@ Counts are test **cases**; table-driven tests count each input. CI runs both on 
 - **Jobs imported from the Sheet have no status history,** so analytics fall back to their current status for the funnel.
 - **iPhone Safari clears site data after 7 days without a visit.** Adding the dashboard to the Home Screen avoids it.
 - **The email template is per browser,** so set it up once on each device.
-- **Supabase free projects pause after about a week of no activity.** The twice-daily scraper writes keep it awake.
+- **Supabase free projects pause after about a week of no activity.** The scraper's writes and your dashboard visits keep it awake. With every site switched off, only the visits do, and a paused project stops its own scheduler.
 - **Screenshots for the README** are taken from the demo with headless Chrome. Phone-width captures don't work headlessly (Chrome won't go below about 500 px).
 
 ---
@@ -488,7 +503,8 @@ Done:
 - **The LinkedIn rate-limit fix.**
 - **Himalayas as a third source** (2026-10-29).
 - **Duplicates across sites** (2026-10-29).
-- **The Sheet retired** (2026-11-03): Supabase is the only output and `Code.gs` is just the timer.
+- **The Sheet retired** (2026-11-03): Supabase is the only output.
+- **Per-site schedules in Supabase** (2026-11-03): `pg_cron` replaced the Apps Script timer; sites can be switched off and timed separately on the Schedule tab.
 
 Open (details in `docs/Plan.md`):
 - **Phase 4 cutover:**

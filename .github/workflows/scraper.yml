@@ -1,11 +1,16 @@
 name: JobStreet + LinkedIn + Himalayas scraper
 
 on:
-  # No cron schedule: GitHub started scheduled runs hours late. The Google Apps
-  # Script timer (startScraper in apps_script/Code.gs) triggers this at
-  # 11 AM and 3 PM Manila time instead, the same way as the button below.
+  # No cron schedule: GitHub started scheduled runs hours late. Supabase's
+  # scheduler (pg_cron, supabase/migrations/*_scheduler.sql) starts this at each
+  # site's times from the dashboard's Schedule tab, passing the sites that are
+  # due in `sources`, the same way as the button below.
   workflow_dispatch:          # "Run workflow" button on the Actions tab
     inputs:
+      sources:
+        description: "Sites to run, comma-separated without spaces (blank = all)"
+        required: false
+        default: ""
       limit:
         description: "Only evaluate this many new jobs (blank = all)"
         required: false
@@ -23,6 +28,7 @@ jobs:
       - name: Show trigger
         run: |
           echo "Event: ${{ github.event_name }}  Started by: ${{ github.actor }}"
+          echo "Sites: ${{ inputs.sources || 'all' }}"
           echo "Started (Manila): $(TZ=Asia/Manila date '+%Y-%m-%d %H:%M')"
 
       - uses: actions/checkout@v4
@@ -58,7 +64,10 @@ jobs:
           key: himalayas-seen-ids-${{ github.run_id }}
           restore-keys: himalayas-seen-ids-
 
+      # Each site's step runs only if `sources` names it (or is blank). A site
+      # switched off on the dashboard also exits on its own when started.
       - name: Run scraper
+        if: ${{ inputs.sources == '' || contains(format(',{0},', inputs.sources), ',jobstreet,') }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
@@ -68,7 +77,7 @@ jobs:
 
       # Same settings and timing as JobStreet; runs even if JobStreet failed.
       - name: Run LinkedIn scraper
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (inputs.sources == '' || contains(format(',{0},', inputs.sources), ',linkedin,')) }}
         # The scraper stops itself after its time budget (config.json
         # "linkedin", 20 min); this is the backstop, so a stuck LinkedIn step
         # can't use up the whole job and stop the seen-ID caches being saved.
@@ -82,7 +91,7 @@ jobs:
 
       # Himalayas' public JSON API: a handful of requests, no per-job fetches.
       - name: Run Himalayas scraper
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (inputs.sources == '' || contains(format(',{0},', inputs.sources), ',himalayas,')) }}
         timeout-minutes: 10
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -92,7 +101,7 @@ jobs:
         run: python Himalayas_Scraper.py ${LIMIT:+--limit "$LIMIT"}
 
       - name: Save seen job IDs
-        if: always()
+        if: always() && hashFiles('scraper/data/seen_ids.json') != ''
         uses: actions/cache/save@v4
         with:
           path: scraper/data/seen_ids.json

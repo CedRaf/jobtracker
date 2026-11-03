@@ -129,6 +129,25 @@ export interface ScraperSettings {
   skills: SkillSetting[]
   other_stacks: StackSetting[]
   previous_employers: string[]
+  /** Which job sites run, and when. Read by the scraper and the database scheduler. */
+  sources: Record<JobSource, SourceSchedule>
+}
+
+/** One job site's on/off switch and start times: Manila time, "HH:MM" on a 15-minute grid. */
+export interface SourceSchedule {
+  enabled: boolean
+  times: string[]
+}
+
+/** One request from the database scheduler (public.scraper_dispatches) to start a GitHub run. */
+export interface ScraperDispatch {
+  /** The scheduled 15-minute slot; null for a run started by hand. */
+  slot: string | null
+  sources: JobSource[]
+  /** GitHub's reply: 204 = run started. Null until the reply arrives, or if it never did. */
+  status_code: number | null
+  error: string | null
+  created_at: string
 }
 
 /** One saved version of the settings (the scraper_settings_versions table). The newest is current. */
@@ -169,6 +188,8 @@ export interface DataApi {
   latestScrapeRuns(): Promise<ScrapeRun[]>
   /** Scraper runs started in the last `days` days, newest first. */
   listScrapeRuns(days: number): Promise<ScrapeRun[]>
+  /** The scheduler's latest requests to GitHub, newest first. */
+  listDispatches(limit: number): Promise<ScraperDispatch[]>
   /** Every recorded status change, oldest first. */
   listStatusHistory(): Promise<StatusChange[]>
   /** Saved scraper settings, newest (= current) first. */

@@ -9,10 +9,14 @@ edit can't break a run (the scraper then uses the defaults).
 
 Rules are plain words and phrases, never regexes; rules.py turns them into
 patterns.
+
+"sources" switches each job site on or off and sets its start times; the
+database scheduler (supabase/migrations/*_scheduler.sql) reads the times.
 """
 
 import copy
 import json
+import re
 from pathlib import Path
 
 DEFAULTS_FILE = Path(__file__).resolve().parent / "default_settings.json"
@@ -25,6 +29,14 @@ CHECK_CHOICES = {
     "language_requirement": DROP_OR_OFF,
     "training_bond": ("flag", "off"),
 }
+
+# Start times are Manila time on a 15-minute grid, because the scheduler checks
+# every 15 minutes. GitHub keeps only one run waiting behind a running one (a
+# newer waiting run replaces it), so different start times must be at least
+# MIN_GAP_MINUTES apart; sites that share a time go into one run.
+START_TIME = re.compile(r"^([01]\d|2[0-3]):(00|15|30|45)$")
+MAX_RUNS_PER_DAY = 6
+MIN_GAP_MINUTES = 30
 
 
 class SettingsError(ValueError):
@@ -186,6 +198,53 @@ def _other_stacks(raw):
     return _unique(stacks, "name", "other_stacks")
 
 
+def _minutes(time):
+    hours, minutes = time.split(":")
+    return int(hours) * 60 + int(minutes)
+
+
+def _clock(minutes):
+    return f"{minutes // 60 % 24:02d}:{minutes % 60:02d}"
+
+
+def _sources(raw, default):
+    raw = _dict(raw, "sources")
+    unknown = sorted(set(raw) - set(default))
+    if unknown:
+        raise SettingsError(f"sources: unknown job site {unknown[0]!r}")
+    sources = {}
+    for site, site_default in default.items():
+        where = f"sources.{site}"
+        site_raw = _dict(raw.get(site, site_default), where)
+        times = site_raw.get("times", site_default["times"])
+        if not isinstance(times, list):
+            raise SettingsError(f"{where}.times must be a list")
+        for i, time in enumerate(times):
+            if not isinstance(time, str) or not START_TIME.match(time.strip()):
+                raise SettingsError(
+                    f"{where}.times[{i}] must be a time like 09:00, on the hour or at :15, :30 or :45")
+        times = sorted({time.strip() for time in times}, key=_minutes)
+        if len(times) > MAX_RUNS_PER_DAY:
+            raise SettingsError(f"{where}.times: at most {MAX_RUNS_PER_DAY} runs a day")
+        on = _bool(site_raw.get("enabled", site_default["enabled"]), f"{where}.enabled")
+        sources[site] = {"enabled": on, "times": times}
+
+    starts = sorted({_minutes(t) for s in sources.values() if s["enabled"] for t in s["times"]})
+    # Around the clock too: 23:45 and 00:00 are 15 minutes apart.
+    for earlier, later in zip(starts, starts[1:] + starts[:1], strict=True):
+        gap = (later - earlier) % 1440
+        if 0 < gap < MIN_GAP_MINUTES:
+            raise SettingsError(
+                f"sources: start times {_clock(earlier)} and {_clock(later)} are less than {MIN_GAP_MINUTES} "
+                "minutes apart; use the same time or keep them further apart")
+    return sources
+
+
+def enabled(settings, source):
+    """Whether this job site is switched on in the settings."""
+    return settings["sources"][source]["enabled"]
+
+
 def validate(raw):
     """
     Returns complete, cleaned settings: the defaults with every section in
@@ -208,6 +267,7 @@ def validate(raw):
         "skills": _skills(merged["skills"]),
         "other_stacks": _other_stacks(merged["other_stacks"]),
         "previous_employers": _words(merged["previous_employers"], "previous_employers", allow_empty=True),
+        "sources": _sources(merged["sources"], defaults["sources"]),
     }
 
 

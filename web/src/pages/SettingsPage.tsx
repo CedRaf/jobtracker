@@ -6,14 +6,18 @@ import {
 } from 'antd'
 import { DeleteOutlined, HistoryOutlined, PlusOutlined, UndoOutlined } from '@ant-design/icons'
 import { DEFAULT_SETTINGS } from '../data/defaultSettings'
-import { useFilteredJobs, useLatestScrapeRuns, useSaveSettings, useSettingsVersions } from '../data/hooks'
-import type { ScraperSettings, SettingsVersion } from '../data/types'
+import {
+  useFilteredJobs, useLatestScrapeRuns, useSaveSettings, useSettingsVersions, useSourceLabel, useSources,
+} from '../data/hooks'
+import type { JobSource, ScraperSettings, SettingsVersion, SourceSchedule } from '../data/types'
 import { dateTime, errorText, fromNow } from '../lib/format'
 import { groupByReason } from '../lib/reasons'
 import { filteredHref } from '../lib/ruleLinks'
-import { changedSections, normalizeSettings, sameValue, settingsProblems } from '../lib/scraperSettings'
+import {
+  changedSections, cleanTimes, MAX_RUNS_PER_DAY, MIN_GAP_MINUTES, normalizeSettings, sameValue, settingsProblems, START_TIMES,
+} from '../lib/scraperSettings'
 
-const TABS = ['search', 'entry', 'titles', 'checks', 'skills', 'stacks']
+const TABS = ['search', 'entry', 'titles', 'checks', 'skills', 'stacks', 'schedule']
 /** The period the drop counts on title rules cover. */
 const DROP_DAYS = 30
 
@@ -30,7 +34,8 @@ export function SettingsPage() {
       <div>
         <Typography.Title level={1} style={{ margin: 0 }}>Scraper rules</Typography.Title>
         <Typography.Text type="secondary">
-          What the scraper searches for and which jobs it drops or flags. Changes apply from the next run.
+          What the scraper searches for, which jobs it drops or flags, and when each site runs. Changes apply from the
+          next run.
         </Typography.Text>
       </div>
 
@@ -110,6 +115,7 @@ function SettingsEditor({ versions, tab, onTabChange }: {
     { key: 'checks', label: 'Description checks', forceRender: true, children: <ChecksTab /> },
     { key: 'skills', label: 'Skills', forceRender: true, children: <SkillsTab /> },
     { key: 'stacks', label: 'Other stacks', forceRender: true, children: <StacksTab /> },
+    { key: 'schedule', label: 'Schedule', forceRender: true, children: <ScheduleTab /> },
   ], [])
 
   const usedBy = (runs.data ?? []).map((r) => r.settings_version)
@@ -518,6 +524,54 @@ function ItemRow({ field, list, onRemove, withWeight }: {
         <Tooltip title="Delete">
           <Button type="text" icon={<DeleteOutlined />} aria-label={`Delete ${name || 'row'}`} onClick={onRemove} />
         </Tooltip>
+      </Flex>
+    </Row>
+  )
+}
+
+const TIME_OPTIONS = START_TIMES.map((time) => ({ label: time, value: time }))
+
+function ScheduleTab() {
+  const sources = useSources()
+  const schedules = Form.useWatch('sources') as Record<JobSource, SourceSchedule> | undefined
+  const allOff = !!schedules && sources.every((source) => !schedules[source]?.enabled)
+  return (
+    <Flex vertical gap={8} style={{ maxWidth: 760 }}>
+      <Hint>
+        Which sites the scraper runs, and when (Manila time). Supabase checks every 15 minutes and starts the sites
+        that are due; sites with the same time run together. Different times need to be at least {MIN_GAP_MINUTES}
+        {' '}minutes apart, and each site can run up to {MAX_RUNS_PER_DAY} times a day. A site that's switched off
+        keeps its times for when it's switched back on.
+      </Hint>
+      {allOff && (
+        <Alert type="warning" showIcon title="Every site is switched off, so nothing will be scraped"
+          description="Supabase pauses free projects after a week without activity. Opening this dashboard counts, so visit at least once a week while scraping is off." />
+      )}
+      <RuleList>
+        {sources.map((source) => <ScheduleRow key={source} source={source} />)}
+      </RuleList>
+    </Flex>
+  )
+}
+
+function ScheduleRow({ source }: { source: JobSource }) {
+  const { label } = useSourceLabel()
+  const enabled = Form.useWatch(['sources', source, 'enabled'])
+  const name = label(source)
+  return (
+    <Row muted={!enabled}>
+      <Flex gap={12} align="start" wrap>
+        <Form.Item name={['sources', source, 'enabled']} valuePropName="checked" noStyle>
+          <Switch aria-label={`Run ${name}`} style={{ marginTop: 5 }} />
+        </Form.Item>
+        <Typography.Text strong style={{ width: 140, marginTop: 5 }}>{name}</Typography.Text>
+        <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+          {/* Kept in time order however the times were picked. */}
+          <Form.Item name={['sources', source, 'times']} noStyle normalize={(times: string[]) => cleanTimes(times)}>
+            <Select mode="multiple" options={TIME_OPTIONS} maxCount={MAX_RUNS_PER_DAY} placeholder="No scheduled runs"
+              aria-label={`Start times for ${name}`} style={{ width: '100%' }} />
+          </Form.Item>
+        </div>
       </Flex>
     </Row>
   )

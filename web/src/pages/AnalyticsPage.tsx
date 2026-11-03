@@ -7,7 +7,9 @@ import {
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import type { ScrapeRun } from '../data/types'
-import { useFilteredJobs, useJobs, useScrapeRuns, useSourceLabel, useSources, useStatusHistory } from '../data/hooks'
+import {
+  useDispatches, useFilteredJobs, useJobs, useScrapeRuns, useSourceLabel, useSources, useStatusHistory,
+} from '../data/hooks'
 import { BarList, ChartCard, DailyJobsChart } from '../components/charts'
 import { ToneTag } from '../components/Tags'
 import {
@@ -16,6 +18,7 @@ import {
 } from '../lib/analytics'
 import { dateTime, errorText, fromNow } from '../lib/format'
 import { filteredHref } from '../lib/ruleLinks'
+import { dispatchProblem, nextStart, scheduledSources, useSchedule } from '../lib/schedule'
 
 const PERIODS = [
   { label: '30 days', value: 30 },
@@ -244,11 +247,17 @@ function ScraperHealth() {
   const list = useMemo(() => runs.data ?? [], [runs.data])
   const sources = useSources()
   const site = useSourceLabel()
-  const stale = staleSources(list, sources)
+  const schedule = useSchedule()
+  const dispatches = useDispatches()
+  // Only sites that are meant to run on a schedule can be overdue.
+  const stale = staleSources(list, scheduledSources(schedule, sources))
   const latest = sources.map((source) => ({
     source, run: list.find((r) => r.source === source),
   }))
   const rate = successRate(list)
+  const next = nextStart(schedule, sources)
+  const lastDispatch = dispatches.data?.[0]
+  const dispatchError = lastDispatch && dispatchProblem(lastDispatch)
 
   return (
     <Card
@@ -265,15 +274,27 @@ function ScraperHealth() {
           action={<Button size="small" onClick={() => runs.refetch()}>Try again</Button>} />
       ) : (
         <Flex vertical gap={12}>
+          {lastDispatch && dispatchError && (
+            <Alert type="error" showIcon
+              title={`The scheduler couldn't start the ${dayjs(lastDispatch.created_at).format('HH:mm')} run`}
+              description={<>
+                <span className="clamp-2">{dispatchError}</span>{' '}
+                If the GitHub token expired or was deleted, replace the Vault secret <code>github_scraper_token</code>
+                {' '}(see docs/SCHEDULER_SETUP.md).
+              </>} />
+          )}
           {stale.length > 0 && (
             <Alert type="warning" showIcon icon={<WarningOutlined />}
               title={`No ${site.multi ? `${stale.map(site.label).join(' or ')} ` : ''}run in the last 24 hours`}
-              description="The scraper should run at 11:00 and 15:00. Check the Apps Script timer and the GitHub Actions tab." />
+              description={<>Check the times on the <Link to="/rules?tab=schedule">Schedule</Link> tab and the GitHub Actions tab.</>} />
           )}
           <Flex gap={24} wrap>
             {latest.map(({ source, run }) => (
               <Flex key={source} vertical gap={4} style={{ minWidth: 200 }}>
-                <Typography.Text type="secondary">{site.multi ? `${site.label(source)} · last run` : 'Last run'}</Typography.Text>
+                <Typography.Text type="secondary">
+                  {site.multi ? `${site.label(source)} · last run` : 'Last run'}
+                  {!schedule[source].enabled && ' (switched off)'}
+                </Typography.Text>
                 {run ? (
                   <Flex gap={8} align="center" wrap>
                     <StateTag state={runState(run)} />
@@ -288,6 +309,18 @@ function ScraperHealth() {
                 )}
               </Flex>
             ))}
+            <Flex vertical gap={4}>
+              <Typography.Text type="secondary">Next run</Typography.Text>
+              {next ? (
+                <span>
+                  <span className="tabular" style={{ fontWeight: 600 }}>{next.time}</span>
+                  {' '}{next.today ? 'today' : 'tomorrow'}
+                  {site.multi && <Typography.Text type="secondary"> · {next.sources.map(site.label).join(', ')}</Typography.Text>}
+                </span>
+              ) : (
+                <Link to="/rules?tab=schedule">Nothing scheduled</Link>
+              )}
+            </Flex>
             <Flex vertical gap={4}>
               <Typography.Text type="secondary">Succeeded ({HEALTH_DAYS} days)</Typography.Text>
               <span className="tabular" style={{ fontWeight: 600 }}>

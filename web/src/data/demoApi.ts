@@ -65,6 +65,11 @@ export function createDemoApi(): DataApi {
       const since = Date.now() - days * 86_400_000
       return demoScrapeRuns().filter((r) => Date.parse(r.started_at) >= since)
     },
+    // The demo has no scheduler log; Scraper health then leaves that line out.
+    async listDispatches() {
+      await wait()
+      return []
+    },
     async listStatusHistory() {
       await wait()
       return history.map((h) => ({ ...h }))

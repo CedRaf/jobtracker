@@ -678,5 +678,28 @@
       "off_stack": true
     }
   ],
-  "previous_employers": []
+  "previous_employers": [],
+  "sources": {
+    "jobstreet": {
+      "enabled": true,
+      "times": [
+        "11:00",
+        "15:00"
+      ]
+    },
+    "linkedin": {
+      "enabled": true,
+      "times": [
+        "11:00",
+        "15:00"
+      ]
+    },
+    "himalayas": {
+      "enabled": true,
+      "times": [
+        "11:00",
+        "15:00"
+      ]
+    }
+  }
 }

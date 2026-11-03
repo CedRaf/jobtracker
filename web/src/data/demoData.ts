@@ -175,7 +175,7 @@ function random(seed: number) {
 }
 
 /**
- * Two weeks of runs on the real schedule (11:00 and 15:00), newest first.
+ * Two weeks of runs at the default times (11:00 and 15:00), newest first.
  * One run failed and one was cancelled, so the health panel has something to show.
  */
 export function demoScrapeRuns(): ScrapeRun[] {

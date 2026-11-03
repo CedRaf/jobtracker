@@ -1,5 +1,5 @@
 import { DEFAULT_SETTINGS } from '../data/defaultSettings'
-import type { ScraperSettings } from '../data/types'
+import type { JobSource, ScraperSettings, SourceSchedule } from '../data/types'
 
 // The same checks as scraper/settings.py validate(), so a version saved here
 // is never rejected by the scraper (which would then fall back to defaults).
@@ -15,6 +15,45 @@ export function cleanWords(words: string[] | undefined): string[] {
     if (word && !seen.has(word.toLowerCase())) {
       seen.add(word.toLowerCase())
       out.push(word)
+    }
+  }
+  return out
+}
+
+// ---- Schedule (sources) ---------------------------------------------------------
+// The same limits as scraper/settings.py: Manila times on the scheduler's
+// 15-minute grid, at most MAX_RUNS_PER_DAY per site, and different start times
+// at least MIN_GAP_MINUTES apart (GitHub keeps only one run waiting).
+
+export const MAX_RUNS_PER_DAY = 6
+export const MIN_GAP_MINUTES = 30
+const START_TIME = /^([01]\d|2[0-3]):(00|15|30|45)$/
+
+/** Every time the scheduler can start a run: 00:00, 00:15, … 23:45. */
+export const START_TIMES = Array.from({ length: 96 }, (_, i) =>
+  `${String(Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15).padStart(2, '0')}`)
+
+export const toMinutes = (time: string) => {
+  const [h, m] = time.split(':').map(Number)
+  return h * 60 + m
+}
+
+/** Trimmed, de-duplicated and in time order. */
+export const cleanTimes = (times: string[]) =>
+  [...new Set(times.map((t) => t.trim()))].sort((a, b) => a.localeCompare(b))
+
+/**
+ * Each site's saved switch and times over its defaults, like the scraper does.
+ * Versions saved before the schedule existed have no "sources" at all.
+ */
+function normalizeSources(saved: Partial<Record<JobSource, Partial<SourceSchedule>>> | undefined) {
+  const out = {} as Record<JobSource, SourceSchedule>
+  for (const site of Object.keys(DEFAULT_SETTINGS.sources) as JobSource[]) {
+    const fallback = DEFAULT_SETTINGS.sources[site]
+    const value = saved?.[site]
+    out[site] = {
+      enabled: typeof value?.enabled === 'boolean' ? value.enabled : fallback.enabled,
+      times: cleanTimes(Array.isArray(value?.times) ? value.times : fallback.times),
     }
   }
   return out
@@ -48,6 +87,7 @@ export function normalizeSettings(s: ScraperSettings): ScraperSettings {
       off_stack: !!k.off_stack,
     })),
     previous_employers: cleanWords(s.previous_employers),
+    sources: normalizeSources(s.sources),
   }
 }
 
@@ -110,15 +150,37 @@ export function settingsProblems(raw: ScraperSettings): string[] {
   }
   words(s.previous_employers, 'Previous employers')
   words(s.entry_level.title_words, 'Entry-level words')
+
+  // No site names in these messages: the public demo never names a real site.
+  const schedules = Object.values(s.sources)
+  if (schedules.some((site) => site.times.some((t) => !START_TIME.test(t)))) {
+    problems.push('Schedule: times must be on the hour or at :15, :30 or :45')
+  }
+  if (schedules.some((site) => site.times.length > MAX_RUNS_PER_DAY)) {
+    problems.push(`Schedule: at most ${MAX_RUNS_PER_DAY} runs a day per site`)
+  }
+  const starts = [...new Set(schedules.filter((site) => site.enabled)
+    .flatMap((site) => site.times.filter((t) => START_TIME.test(t)).map(toMinutes)))].sort((a, b) => a - b)
+  starts.forEach((earlier, i) => {
+    // Around the clock too: 23:45 and 00:00 are 15 minutes apart.
+    const later = starts[(i + 1) % starts.length]
+    const gap = (later - earlier + 1440) % 1440
+    if (gap > 0 && gap < MIN_GAP_MINUTES) {
+      problems.push(`Schedule: ${clock(earlier)} and ${clock(later)} are less than ${MIN_GAP_MINUTES} minutes apart. `
+        + 'Give sites the same time (they then run together) or keep them further apart.')
+    }
+  })
   return problems
 }
+
+const clock = (minutes: number) => START_TIMES[minutes / 15]
 
 /** Which top-level sections differ between two settings, for the history list. */
 export function changedSections(before: ScraperSettings, after: ScraperSettings): string[] {
   const sections: [keyof ScraperSettings, string][] = [
     ['search', 'search'], ['entry_level', 'entry-level words'], ['title_rules', 'title rules'], ['checks', 'description checks'],
     ['experience', 'experience'], ['skills', 'skills'], ['min_match_score', 'minimum score'],
-    ['other_stacks', 'other stacks'], ['previous_employers', 'previous employers'],
+    ['other_stacks', 'other stacks'], ['previous_employers', 'previous employers'], ['sources', 'schedule'],
   ]
   return sections
     .filter(([key]) => !sameValue(before[key], after[key]))

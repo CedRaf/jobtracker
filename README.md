@@ -26,10 +26,10 @@ A personal job-search pipeline: a scraper that collects listings from several jo
 
 ```mermaid
 flowchart LR
-    T["Apps Script<br/>timer (2× daily)"] -->|starts| GA["GitHub Actions<br/>Python scraper"]
-    GA -->|"search + details<br/>(one adapter per board)"| JB[(Job boards)]
+    GA["GitHub Actions<br/>Python scraper"] -->|"search + details<br/>(one adapter per board)"| JB[(Job boards)]
     GA -->|"upsert jobs, filtered jobs, run log<br/>(secret key, server-side only)"| DB[("Supabase<br/>Postgres + Auth + REST")]
     GA -.->|"reads the latest rules version"| DB
+    DB -.->|"pg_cron: starts each site<br/>at its scheduled times"| GA
     W["React dashboard<br/>(static, on Vercel)"] -->|"supabase-js<br/>publishable key + row-level security"| DB
 ```
 
@@ -49,7 +49,7 @@ flowchart LR
 
 | Part | Tools |
 |---|---|
-| Scraper | Python 3.13, `requests`, Beautiful Soup, GitHub Actions (scheduled by a Google Apps Script timer) |
+| Scraper | Python 3.13, `requests`, Beautiful Soup, GitHub Actions (started by a `pg_cron` scheduler in Postgres) |
 | Database & auth | Supabase: Postgres, row-level security, Auth, REST (PostgREST); SQL migrations via the Supabase CLI |
 | Dashboard | React 19, TypeScript, Vite, Ant Design 6, TanStack Query, React Router, Recharts, dnd-kit |
 | Testing & CI | pytest, ruff, Vitest, Testing Library, oxlint, GitHub Actions |
@@ -72,12 +72,11 @@ scraper/              Python scraper
   sinks.py              outputs (Supabase REST), run log, settings loading
   import_sheet.py       one-off import of the spreadsheet history
   tests/                unit, regression and integration tests (fake HTTP)
-supabase/migrations/  schema, row-level security, triggers, settings versions
+supabase/migrations/  schema, row-level security, triggers, settings versions, the run scheduler
 web/                  React dashboard
   src/data/             DataApi: Supabase and demo implementations, React Query hooks
   src/lib/              pure logic: filters, analytics, rule validation, entry-level matching
   src/pages/            Jobs, Board, Analytics, Filtered out, Rules
-apps_script/          Apps Script: the twice-daily timer
 docs/                 setup guides and screenshots
 ```
 
@@ -91,7 +90,7 @@ npm install
 npm run dev:demo
 ```
 
-**The full setup** needs a free Supabase project (run the migrations with `npx supabase db push`) and a few environment variables:
+**The full setup** needs a free Supabase project (run the migrations with `npx supabase db push --remote`) and a few environment variables:
 - **Dashboard:** `web/.env.example`, and [docs/DASHBOARD_SETUP.md](docs/DASHBOARD_SETUP.md) for creating the login and deploying.
 - **Scraper:** `SUPABASE_URL` and `SUPABASE_SECRET_KEY` as GitHub Actions secrets. `python scraper.py --dry-run` runs it locally without writing anything.
 

@@ -11,7 +11,7 @@ export interface EmailTemplate {
   gmailAccount: string
 }
 
-// Same wording as the generic default in apps_script/Code.gs.
+// The generic wording the retired Sheet drafts used.
 export const DEFAULT_TEMPLATE: EmailTemplate = {
   subject: 'Inquiry: {title} Position',
   body: [

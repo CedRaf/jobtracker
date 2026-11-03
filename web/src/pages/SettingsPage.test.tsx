@@ -94,6 +94,36 @@ it('treats a saved version as unchanged even when its keys come back reordered',
   expect(screen.queryByText('Discard unsaved rule changes?')).not.toBeInTheDocument()
 }, 20_000)
 
+it('switches a site off on the Schedule tab, keeping its times', async () => {
+  const api = renderWithApi(<SettingsPage />, undefined, '/rules?tab=schedule')
+  expect(await screen.findByRole('tab', { name: 'Schedule', selected: true })).toBeInTheDocument()
+  // The public demo shows one, generically named site.
+  await userEvent.click(screen.getByRole('switch', { name: 'Run Job board' }))
+  expect(screen.getByText(/Every site is switched off/)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /Save as new version/ }))
+
+  await waitFor(async () => expect(await api.listSettingsVersions()).toHaveLength(2))
+  const [latest] = await api.listSettingsVersions()
+  expect(latest.settings.sources.jobstreet).toEqual({ enabled: false, times: ['11:00', '15:00'] })
+}, 20_000)
+
+it('won’t save start times less than 30 minutes apart', async () => {
+  const api = createDemoApi()
+  const [first] = await api.listSettingsVersions()
+  // Saved behind the editor's back, as an older or hand-edited version could be.
+  await api.saveSettings({
+    ...first.settings, sources: { ...first.settings.sources, jobstreet: { enabled: true, times: ['11:00', '11:15'] } },
+  }, null)
+  renderWithApi(<SettingsPage />, api)
+  await screen.findByText(/^Version 2, saved/)
+  await userEvent.clear(daysInput())
+  await userEvent.type(daysInput(), '5')
+  await userEvent.click(screen.getByRole('button', { name: /Save as new version/ }))
+
+  expect(await screen.findByText(/11:00 and 11:15 are less than 30 minutes apart/)).toBeInTheDocument()
+  expect(await api.listSettingsVersions()).toHaveLength(2)
+}, 20_000)
+
 it('opens the tab named in the link and shows what each title rule dropped', async () => {
   renderWithApi(<SettingsPage />, undefined, '/rules?tab=titles&rule=seniority%20title')
   expect(await screen.findByRole('tab', { name: 'Title rules', selected: true })).toBeInTheDocument()

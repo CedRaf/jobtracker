@@ -61,6 +61,60 @@ def test_a_disabled_title_rule_may_have_no_words():
     assert clean["title_rules"] == [{"label": "x", "enabled": False, "words": []}]
 
 
+# ---- sources: which sites run, and when ------------------------------------------------
+
+
+def test_sources_default_to_every_site_at_the_usual_times():
+    clean = settings.validate({})
+    assert set(clean["sources"]) == {"jobstreet", "linkedin", "himalayas"}
+    assert all(s == {"enabled": True, "times": ["11:00", "15:00"]} for s in clean["sources"].values())
+
+
+def test_a_missing_site_or_key_falls_back_to_its_default():
+    clean = settings.validate({"sources": {"linkedin": {"enabled": False}}})
+    assert clean["sources"]["linkedin"] == {"enabled": False, "times": ["11:00", "15:00"]}
+    assert clean["sources"]["jobstreet"]["enabled"] is True
+
+
+def test_times_are_trimmed_deduplicated_and_sorted():
+    clean = settings.validate({"sources": {"linkedin": {"times": ["15:00", " 09:30", "15:00"]},
+                                           "jobstreet": {"times": ["09:30"]}, "himalayas": {"times": []}}})
+    assert clean["sources"]["linkedin"]["times"] == ["09:30", "15:00"]
+
+
+def test_sites_may_share_a_time_or_be_30_minutes_apart():
+    clean = settings.validate({"sources": {
+        "jobstreet": {"times": ["11:00"]}, "linkedin": {"times": ["11:30"]},
+        "himalayas": {"times": ["11:00", "23:30"]}}})
+    assert clean["sources"]["himalayas"]["times"] == ["11:00", "23:30"]
+
+
+def test_a_disabled_site_doesnt_count_towards_the_gap():
+    clean = settings.validate({"sources": {"linkedin": {"enabled": False, "times": ["11:15"]}}})
+    assert clean["sources"]["linkedin"] == {"enabled": False, "times": ["11:15"]}
+
+
+@pytest.mark.parametrize("sources, message", [
+    ({"monster": {"enabled": True, "times": []}}, "unknown job site 'monster'"),
+    ({"linkedin": {"times": ["11:10"]}}, r"sources.linkedin.times\[0\]"),
+    ({"linkedin": {"times": ["24:00"]}}, "must be a time"),
+    ({"linkedin": {"times": "11:00"}}, "must be a list"),
+    ({"linkedin": {"times": [f"{h:02d}:00" for h in range(0, 21, 3)]}}, "at most 6 runs"),
+    ({"linkedin": {"enabled": "yes"}}, "sources.linkedin.enabled must be true or false"),
+    ({"linkedin": {"times": ["11:15"]}}, "11:00 and 11:15 are less than 30 minutes apart"),
+    ({"jobstreet": {"times": ["23:45"]}, "linkedin": {"times": ["00:00"]}, "himalayas": {"times": []}},
+     "23:45 and 00:00"),
+])
+def test_invalid_sources_are_rejected(sources, message):
+    with pytest.raises(settings.SettingsError, match=message):
+        settings.validate({"sources": sources})
+
+
+def test_enabled_reads_the_site_switch():
+    clean = settings.validate({"sources": {"himalayas": {"enabled": False}}})
+    assert settings.enabled(clean, "jobstreet") and not settings.enabled(clean, "himalayas")
+
+
 def test_search_config_uses_the_scrapers_names():
     clean = settings.validate({"search": {"radius_km": 25, "search_remote_elsewhere": False}})
     cfg = settings.search_config(clean)
@@ -73,13 +127,21 @@ def test_search_config_uses_the_scrapers_names():
 
 
 def test_migration_seeds_the_defaults():
-    # Sections added after the migration (entry_level) aren't in the seed;
+    # Sections added after the migration (entry_level, sources) aren't in the seed;
     # versions without them use the defaults, so the rest must match exactly.
     sql = next((ROOT / "supabase" / "migrations").glob("*_scraper_settings.sql")).read_text(encoding="utf-8")
     seed = json.loads(re.search(r"\$settings\$(.*?)\$settings\$", sql, re.S).group(1))
-    added_later = {"entry_level"}
+    added_later = {"entry_level", "sources"}
     assert seed == {k: v for k, v in defaults().items() if k not in added_later}
     assert settings.validate(seed)["entry_level"] == defaults()["entry_level"]
+    assert settings.validate(seed)["sources"] == defaults()["sources"]
+
+
+def test_scheduler_uses_the_default_sources():
+    # The database scheduler falls back to these for versions without "sources".
+    sql = next((ROOT / "supabase" / "migrations").glob("*_scheduler.sql")).read_text(encoding="utf-8")
+    sources = json.loads(re.search(r"\$sources\$(.*?)\$sources\$", sql, re.S).group(1))
+    assert sources == defaults()["sources"]
 
 
 def test_dashboard_copy_matches_the_defaults():

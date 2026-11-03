@@ -1,7 +1,68 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS } from '../data/defaultSettings'
 import type { ScraperSettings } from '../data/types'
-import { changedSections, cleanWords, normalizeSettings, sameValue, settingsProblems } from './scraperSettings'
+import {
+  changedSections, cleanTimes, cleanWords, normalizeSettings, sameValue, settingsProblems, START_TIMES,
+} from './scraperSettings'
+
+describe('schedule (sources)', () => {
+  const withSources = (change: (s: ScraperSettings) => void) => {
+    const copy = structuredClone(DEFAULT_SETTINGS)
+    change(copy)
+    return copy
+  }
+
+  it('fills the schedule for versions saved before it existed', () => {
+    const old: Partial<ScraperSettings> = structuredClone(DEFAULT_SETTINGS)
+    delete old.sources
+    expect(normalizeSettings(old as ScraperSettings).sources).toEqual(DEFAULT_SETTINGS.sources)
+  })
+
+  it('keeps saved values over each site’s defaults and sorts the times', () => {
+    const s = withSources((x) => { x.sources.linkedin = { enabled: false, times: ['15:00', ' 09:30', '15:00'] } })
+    expect(normalizeSettings(s).sources.linkedin).toEqual({ enabled: false, times: ['09:30', '15:00'] })
+    expect(normalizeSettings(s).sources.jobstreet).toEqual(DEFAULT_SETTINGS.sources.jobstreet)
+  })
+
+  it('offers every 15-minute start time of the day', () => {
+    expect(START_TIMES).toHaveLength(96)
+    expect([START_TIMES[0], START_TIMES[1], START_TIMES[95]]).toEqual(['00:00', '00:15', '23:45'])
+    expect(cleanTimes(['15:00', '09:00', '15:00'])).toEqual(['09:00', '15:00'])
+  })
+
+  it.each([
+    ['off the 15-minute grid', (s: ScraperSettings) => { s.sources.linkedin.times = ['11:10'] }, 'on the hour or at :15'],
+    ['too many runs', (s: ScraperSettings) => { s.sources.linkedin.times = START_TIMES.filter((_, i) => i % 12 === 0) },
+      'at most 6 runs'],
+    ['times too close', (s: ScraperSettings) => { s.sources.linkedin.times = ['11:15'] },
+      '11:00 and 11:15 are less than 30 minutes apart'],
+    ['too close around midnight', (s: ScraperSettings) => {
+      s.sources.jobstreet.times = ['23:45']
+      s.sources.linkedin.times = ['00:00']
+      s.sources.himalayas.times = []
+    }, '23:45 and 00:00'],
+  ])('rejects %s', (_label, change, message) => {
+    expect(settingsProblems(withSources(change)).join('\n')).toContain(message)
+  })
+
+  it('lets sites share a time, be 30 minutes apart, or sit inside the gap while switched off', () => {
+    expect(settingsProblems(withSources((s) => {
+      s.sources.jobstreet.times = ['11:00']
+      s.sources.linkedin.times = ['11:30']
+      s.sources.himalayas = { enabled: false, times: ['11:15'] }
+    }))).toEqual([])
+  })
+
+  it('never names a site in its messages', () => {
+    const problems = settingsProblems(withSources((s) => { s.sources.himalayas.times = ['11:15'] }))
+    expect(problems.join(' ')).not.toMatch(/jobstreet|linkedin|himalayas/i)
+  })
+
+  it('reports a schedule change in the history', () => {
+    expect(changedSections(DEFAULT_SETTINGS, withSources((s) => { s.sources.linkedin.enabled = false })))
+      .toEqual(['schedule'])
+  })
+})
 
 const withChanges = (change: (s: ScraperSettings) => void) => {
   const copy = structuredClone(DEFAULT_SETTINGS)

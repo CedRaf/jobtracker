@@ -376,10 +376,16 @@ def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix=
     secrets = load_secrets()
     seen = load_json(seen_file, {})
 
+    # Search terms, filter rules and which sites run come from the settings
+    # edited in the dashboard; config.json keeps the operational settings.
+    # load_settings() never raises: it falls back to the defaults.
+    scraper_settings, version = sinks.load_settings(secrets)
+    if not settings_module.enabled(scraper_settings, source):
+        # No run-log row: a switched-off site isn't a failed or empty run.
+        log.info("%s is switched off in the scraper settings; nothing to do.", source)
+        return
+
     with sinks.run_log(cfg, secrets, source, dry_run=args.dry_run) as stats:
-        # Search terms and filter rules come from the settings edited in the
-        # dashboard; config.json keeps the operational settings.
-        scraper_settings, version = sinks.load_settings(secrets)
         rules.configure(scraper_settings)
         cfg = {**cfg, **settings_module.search_config(scraper_settings)}
         stats["settings_version"] = version
