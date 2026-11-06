@@ -110,16 +110,32 @@ def test_invalid_sources_are_rejected(sources, message):
         settings.validate({"sources": sources})
 
 
+@pytest.mark.parametrize("shared", [True, False])
+def test_the_old_shared_remote_switch_applies_to_each_site(shared):
+    clean = settings.validate({"search": {"search_remote_elsewhere": shared}})
+    assert clean["search"]["remote_elsewhere"] == {"jobstreet": shared, "linkedin": shared}
+    assert "search_remote_elsewhere" not in clean["search"]
+
+
+@pytest.mark.parametrize("remote, message", [
+    ("yes", "search.remote_elsewhere must be an object"),
+    ({"linkedin": "no"}, "search.remote_elsewhere.linkedin must be true or false"),
+])
+def test_invalid_remote_switches_are_rejected(remote, message):
+    with pytest.raises(settings.SettingsError, match=message):
+        settings.validate({"search": {"remote_elsewhere": remote}})
+
+
 def test_enabled_reads_the_site_switch():
     clean = settings.validate({"sources": {"himalayas": {"enabled": False}}})
     assert settings.enabled(clean, "jobstreet") and not settings.enabled(clean, "himalayas")
 
 
 def test_search_config_uses_the_scrapers_names():
-    clean = settings.validate({"search": {"radius_km": 25, "search_remote_elsewhere": False}})
+    clean = settings.validate({"search": {"radius_km": 25, "remote_elsewhere": {"linkedin": False}}})
     cfg = settings.search_config(clean)
     assert cfg["cebu_distance_kms"] == 25
-    assert cfg["search_remote_outside_cebu"] is False
+    assert cfg["remote_elsewhere"] == {"jobstreet": True, "linkedin": False}
     assert cfg["min_match_score"] == defaults()["min_match_score"]
 
 
@@ -128,13 +144,20 @@ def test_search_config_uses_the_scrapers_names():
 
 def test_migration_seeds_the_defaults():
     # Sections added after the migration (entry_level, sources) aren't in the seed;
-    # versions without them use the defaults, so the rest must match exactly.
+    # versions without them use the defaults, so the rest must match exactly. The seed
+    # has the old shared remote switch (search_remote_elsewhere) instead of one per site.
     sql = next((ROOT / "supabase" / "migrations").glob("*_scraper_settings.sql")).read_text(encoding="utf-8")
     seed = json.loads(re.search(r"\$settings\$(.*?)\$settings\$", sql, re.S).group(1))
     added_later = {"entry_level", "sources"}
-    assert seed == {k: v for k, v in defaults().items() if k not in added_later}
-    assert settings.validate(seed)["entry_level"] == defaults()["entry_level"]
-    assert settings.validate(seed)["sources"] == defaults()["sources"]
+    expected = {k: v for k, v in defaults().items() if k not in added_later}
+    seed_search = dict(seed["search"])
+    assert seed_search.pop("search_remote_elsewhere") is True
+    assert {**seed, "search": seed_search} == {
+        **expected, "search": {k: v for k, v in expected["search"].items() if k != "remote_elsewhere"}}
+    clean = settings.validate(seed)
+    assert clean["search"] == defaults()["search"]
+    assert clean["entry_level"] == defaults()["entry_level"]
+    assert clean["sources"] == defaults()["sources"]
 
 
 def test_scheduler_uses_the_default_sources():

@@ -56,7 +56,7 @@ def test_a_second_429_raises_rate_limited(sleeps):
 
 
 CFG = {"keywords": ["junior developer", "ai engineer"], "cebu_distance_kms": 50,
-       "search_remote_outside_cebu": True, "listed_within_days": 3, "sort": "listedAt",
+       "remote_elsewhere": {"linkedin": True}, "listed_within_days": 3, "sort": "listedAt",
        "min_match_score": 0, "linkedin": {"max_pages_per_search": 2, "delay_seconds": 0}}
 
 
@@ -99,6 +99,22 @@ def test_rate_limited_before_any_result_fails_the_run(monkeypatch, sleeps):
     monkeypatch.setattr(api, "search", search)
     with pytest.raises(RuntimeError, match="rate-limiting"):
         li.collect(None, fresh_cfg())
+
+
+@pytest.mark.parametrize("remote, expected", [
+    (True, [("junior developer", api.CEBU), ("junior developer remote", api.PHILIPPINES)]),
+    (False, [("junior developer", api.CEBU)]),
+])
+def test_remote_switch_adds_the_philippines_wide_search(monkeypatch, sleeps, remote, expected):
+    calls = []
+
+    def search(session, keyword, page, location, **kw):
+        calls.append((keyword, location))
+        return []
+
+    monkeypatch.setattr(api, "search", search)
+    li.collect(None, {**fresh_cfg(), "keywords": ["junior developer"], "remote_elsewhere": {"linkedin": remote}})
+    assert calls == expected
 
 
 def test_searches_respect_pages_per_search(monkeypatch, sleeps):
