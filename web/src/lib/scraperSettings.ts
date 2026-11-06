@@ -1,5 +1,5 @@
 import { DEFAULT_SETTINGS } from '../data/defaultSettings'
-import type { JobSource, ScraperSettings, SourceSchedule } from '../data/types'
+import type { JobSource, RemoteSearchSite, ScraperSettings, SourceSchedule } from '../data/types'
 
 // The same checks as scraper/settings.py validate(), so a version saved here
 // is never rejected by the scraper (which would then fall back to defaults).
@@ -59,13 +59,38 @@ function normalizeSources(saved: Partial<Record<JobSource, Partial<SourceSchedul
   return out
 }
 
+export const REMOTE_SEARCH_SITES = Object.keys(DEFAULT_SETTINGS.search.remote_elsewhere) as RemoteSearchSite[]
+
+/**
+ * Each site's "also search remote jobs outside Cebu" switch. Versions saved
+ * before 2026-11-06 have one switch for every site (search_remote_elsewhere).
+ */
+function normalizeRemote(search: ScraperSettings['search'] & { search_remote_elsewhere?: boolean }) {
+  const saved = search.remote_elsewhere
+  const shared = search.search_remote_elsewhere
+  const out = {} as Record<RemoteSearchSite, boolean>
+  for (const site of REMOTE_SEARCH_SITES) {
+    const value = saved?.[site]
+    out[site] = typeof value === 'boolean' ? value
+      : !saved && typeof shared === 'boolean' ? shared
+        : DEFAULT_SETTINGS.search.remote_elsewhere[site]
+  }
+  return out
+}
+
 /** Tidies form values into settings: trimmed words, defaults for optional fields. */
 export function normalizeSettings(s: ScraperSettings): ScraperSettings {
   // Versions saved before entry_level existed don't have it.
   const entry = s.entry_level ?? DEFAULT_SETTINGS.entry_level
   return {
     schema: 1,
-    search: { ...s.search, keywords: cleanWords(s.search.keywords) },
+    search: {
+      keywords: cleanWords(s.search.keywords),
+      listed_within_days: s.search.listed_within_days,
+      max_pages_per_search: s.search.max_pages_per_search,
+      radius_km: s.search.radius_km,
+      remote_elsewhere: normalizeRemote(s.search),
+    },
     entry_level: { title_words: cleanWords(entry.title_words), description_signals: !!entry.description_signals },
     min_match_score: s.min_match_score,
     experience: {

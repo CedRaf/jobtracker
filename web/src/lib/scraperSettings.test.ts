@@ -24,6 +24,20 @@ describe('schedule (sources)', () => {
     expect(normalizeSettings(s).sources.jobstreet).toEqual(DEFAULT_SETTINGS.sources.jobstreet)
   })
 
+  it('applies the old shared remote switch to each site', () => {
+    const old = structuredClone(DEFAULT_SETTINGS) as ScraperSettings & { search: { search_remote_elsewhere?: boolean } }
+    delete (old.search as Partial<ScraperSettings['search']>).remote_elsewhere
+    old.search.search_remote_elsewhere = false
+    const { search } = normalizeSettings(old)
+    expect(search.remote_elsewhere).toEqual({ jobstreet: false, linkedin: false })
+    expect(search).not.toHaveProperty('search_remote_elsewhere')
+  })
+
+  it('keeps each site’s remote switch, with defaults for missing sites', () => {
+    const s = withSources((x) => { x.search.remote_elsewhere = { linkedin: false } as ScraperSettings['search']['remote_elsewhere'] })
+    expect(normalizeSettings(s).search.remote_elsewhere).toEqual({ jobstreet: true, linkedin: false })
+  })
+
   it('offers every 15-minute start time of the day', () => {
     expect(START_TIMES).toHaveLength(96)
     expect([START_TIMES[0], START_TIMES[1], START_TIMES[95]]).toEqual(['00:00', '00:15', '23:45'])
