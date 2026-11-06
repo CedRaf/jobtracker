@@ -18,7 +18,10 @@
     "listed_within_days": 3,
     "max_pages_per_search": 2,
     "radius_km": 50,
-    "search_remote_elsewhere": true
+    "remote_elsewhere": {
+      "jobstreet": true,
+      "linkedin": true
+    }
   },
   "entry_level": {
     "title_words": [

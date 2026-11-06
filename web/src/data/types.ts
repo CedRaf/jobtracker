@@ -1,6 +1,8 @@
 // Mirrors supabase/migrations/*_init.sql. Keep the two in sync.
 
 export type JobSource = 'jobstreet' | 'linkedin' | 'himalayas'
+/** Sites with a Cebu search that can also search remote jobs outside Cebu (Himalayas only lists remote jobs). */
+export type RemoteSearchSite = Exclude<JobSource, 'himalayas'>
 
 export type JobStatus =
   | 'new'
@@ -109,7 +111,8 @@ export interface ScraperSettings {
     listed_within_days: number
     max_pages_per_search: number
     radius_km: number
-    search_remote_elsewhere: boolean
+    /** Per site: also search remote jobs outside Cebu. */
+    remote_elsewhere: Record<RemoteSearchSite, boolean>
   }
   /** Dashboard only: which jobs get the Entry-level marker and sort first. Never drops anything. */
   entry_level: {
