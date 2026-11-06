@@ -113,7 +113,8 @@ def test_remote_switch_adds_the_philippines_wide_search(monkeypatch, sleeps, rem
         return []
 
     monkeypatch.setattr(api, "search", search)
-    li.collect(None, {**fresh_cfg(), "keywords": ["junior developer"], "remote_elsewhere": {"linkedin": remote}})
+    cfg = {**fresh_cfg(), "keywords": ["junior developer"], "remote_elsewhere": {"linkedin": remote}}
+    li.collect(None, cfg)
     assert calls == expected
 
 
