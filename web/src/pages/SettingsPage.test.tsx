@@ -94,6 +94,17 @@ it('treats a saved version as unchanged even when its keys come back reordered',
   expect(screen.queryByText('Discard unsaved rule changes?')).not.toBeInTheDocument()
 }, 20_000)
 
+it('switches off a site’s remote search outside Cebu', async () => {
+  const api = renderWithApi(<SettingsPage />)
+  await screen.findByText(/^Version 1, saved/)
+  await userEvent.click(screen.getByRole('switch', { name: 'Search remote jobs outside Cebu on Job board' }))
+  await userEvent.click(screen.getByRole('button', { name: /Save as new version/ }))
+
+  await waitFor(async () => expect(await api.listSettingsVersions()).toHaveLength(2))
+  const [latest] = await api.listSettingsVersions()
+  expect(latest.settings.search.remote_elsewhere).toEqual({ jobstreet: false, linkedin: true })
+}, 20_000)
+
 it('switches a site off on the Schedule tab, keeping its times', async () => {
   const api = renderWithApi(<SettingsPage />, undefined, '/rules?tab=schedule')
   expect(await screen.findByRole('tab', { name: 'Schedule', selected: true })).toBeInTheDocument()

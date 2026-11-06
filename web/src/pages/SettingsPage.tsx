@@ -14,7 +14,8 @@ import { dateTime, errorText, fromNow } from '../lib/format'
 import { groupByReason } from '../lib/reasons'
 import { filteredHref } from '../lib/ruleLinks'
 import {
-  changedSections, cleanTimes, MAX_RUNS_PER_DAY, MIN_GAP_MINUTES, normalizeSettings, sameValue, settingsProblems, START_TIMES,
+  changedSections, cleanTimes, MAX_RUNS_PER_DAY, MIN_GAP_MINUTES, normalizeSettings, REMOTE_SEARCH_SITES, sameValue,
+  settingsProblems, START_TIMES,
 } from '../lib/scraperSettings'
 
 const TABS = ['search', 'entry', 'titles', 'checks', 'skills', 'stacks', 'schedule']
@@ -259,7 +260,10 @@ const MATCHING_HINT = 'Matching ignores case and works on whole words; spaces an
 function SearchTab() {
   return (
     <Flex vertical gap={8} style={{ maxWidth: 760 }}>
-      <Hint>Each keyword is searched on every job site, in Cebu and (if switched on) as remote jobs anywhere.</Hint>
+      <Hint>
+        Each keyword is searched on every job site: in Cebu, and as remote jobs outside Cebu on the sites switched on
+        below.
+      </Hint>
       <Form.Item name={['search', 'keywords']} label="Search keywords">
         <WordsInput placeholder="e.g. junior react developer" aria-label="Search keywords" />
       </Form.Item>
@@ -275,11 +279,59 @@ function SearchTab() {
           <InputNumber min={1} max={500} suffix="km" style={{ width: 140 }} />
         </Form.Item>
       </Flex>
-      <Form.Item name={['search', 'search_remote_elsewhere']} valuePropName="checked"
-        label="Also search remote jobs outside Cebu">
-        <Switch />
-      </Form.Item>
+      <RemoteSearch />
     </Flex>
+  )
+}
+
+function RemoteSearch() {
+  const sources = useSources()
+  return (
+    <div role="group" aria-labelledby="remote-search-label">
+      <Typography.Text strong id="remote-search-label" style={{ display: 'block', marginBottom: 4 }}>
+        Also search remote jobs outside Cebu
+      </Typography.Text>
+      <Hint>
+        Switching a site off leaves only its Cebu search, so it sends fewer requests. Remote jobs found by its Cebu
+        search are still kept.
+      </Hint>
+      <RuleList>
+        {sources.map((source) => <RemoteSearchRow key={source} source={source} />)}
+      </RuleList>
+    </div>
+  )
+}
+
+const REMOTE_NOTES: Record<JobSource, string> = {
+  // No site names: the public demo shows a single, generically named site.
+  jobstreet: 'Uses the site’s remote filter, so it finds remote jobs across the Philippines.',
+  linkedin: 'The site ignores its remote filter when not logged in, so this search mostly finds hybrid and on-site jobs elsewhere, which are then filtered out.',
+  himalayas: 'Only lists remote jobs, so it has no Cebu search. To stop it, switch it off on the Schedule tab.',
+}
+
+function RemoteSearchRow({ source }: { source: JobSource }) {
+  const { label } = useSourceLabel()
+  const name = label(source)
+  const configurable = (REMOTE_SEARCH_SITES as JobSource[]).includes(source)
+  const enabled = Form.useWatch(['search', 'remote_elsewhere', source])
+  return (
+    <Row muted={configurable && !enabled}>
+      <Flex gap={12} align="start">
+        {configurable ? (
+          <Form.Item name={['search', 'remote_elsewhere', source]} valuePropName="checked" noStyle>
+            <Switch aria-label={`Search remote jobs outside Cebu on ${name}`} style={{ marginTop: 2 }} />
+          </Form.Item>
+        ) : (
+          <Tooltip title="Himalayas only lists remote jobs">
+            <Switch checked disabled aria-label={`${name} always searches remote jobs`} style={{ marginTop: 2 }} />
+          </Tooltip>
+        )}
+        <Flex vertical style={{ minWidth: 0 }}>
+          <Typography.Text strong>{name}</Typography.Text>
+          <Typography.Text type="secondary">{REMOTE_NOTES[source]}</Typography.Text>
+        </Flex>
+      </Flex>
+    </Row>
   )
 }
 
