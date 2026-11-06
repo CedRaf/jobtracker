@@ -55,7 +55,7 @@ The flow is `scraper.scrape()`, shared by both job boards:
 2. Load the **newest scraper settings version** from Supabase. If there's none, it can't be fetched, or it's invalid, use `default_settings.json`. The run never fails because of settings. **If this site is switched off** (`sources`), stop here, with no run-log row.
 3. Start a `scrape_runs` row (the run log).
 4. Compile the rules from the settings (`rules.configure`).
-5. **Collect:** run every search (keyword × {home city, remote elsewhere}) and merge the results by job ID.
+5. **Collect:** run every search (keyword × {home city, remote elsewhere if this site's switch is on}) and merge the results by job ID.
 6. Skip jobs already **seen** in earlier runs (`data/*seen_ids.json`, carried between runs by the GitHub Actions cache).
    Then drop jobs **another site already has**: kept jobs from the other sources in the last `duplicate_lookback_days` (60) are loaded from Supabase and compared on a cleaned title + company key (section 4.8). Matches are filtered as `"duplicate posting (also on JobStreet)"`. If Supabase can't be read, this step is skipped.
 7. **Evaluate** each new job:
@@ -169,7 +169,7 @@ The rules come from settings (section 4.5). How matching works is fixed in code:
 
 ### 4.5 Settings (`settings.py`, `default_settings.json`)
 - **Sections:**
-  - `search`: keywords, `listed_within_days`, `max_pages_per_search`, `radius_km`, `search_remote_elsewhere`
+  - `search`: keywords, `listed_within_days`, `max_pages_per_search`, `radius_km`, `remote_elsewhere` (per site, `jobstreet`/`linkedin`: also search remote jobs outside Cebu; Himalayas only lists remote jobs. Versions saved before 2026-11-06 have one shared `search_remote_elsewhere`, which applies to both)
   - `entry_level`: used only by the dashboard
   - `min_match_score`
   - `experience`: `flag_years`, `drop_years`; null means never
@@ -340,7 +340,7 @@ Components never call Supabase directly. Everything goes through one interface.
   - The URL keeps `?days=&rule=`, so other pages can link straight to a group.
   - "Edit rule" links to the matching place on the Rules page (`lib/ruleLinks.ts`).
 - **Rules (`SettingsPage.tsx`):**
-  - Tabs: Search, Entry-level, Title rules (with drop counts), Description checks, Skills, Other stacks, Schedule (each site's switch and start times; warns when every site is off).
+  - Tabs: Search (with each site's "remote jobs outside Cebu" switch), Entry-level, Title rules (with drop counts), Description checks, Skills, Other stacks, Schedule (each site's switch and start times; warns when every site is off).
   - Built with an antd `Form` and `Form.List`; tag inputs for word lists (Enter or comma adds one).
   - A save bar with an optional note.
   - Validation mirrors the scraper's (`lib/scraperSettings.ts`), so a saved version is never rejected.
@@ -419,10 +419,10 @@ No real secret has ever been committed (history checked 2026-10-26). The repo is
 
 ## 8. Testing
 
-| Suite | Where | Count (2026-11-03) | Run with |
+| Suite | Where | Count (2026-11-06) | Run with |
 |---|---|---|---|
-| Scraper | `scraper/tests/` | **214** test cases | `cd scraper && ../.venv/Scripts/python.exe -m pytest` |
-| Dashboard | `web/src/**/*.test.ts(x)` | **139** test cases in 17 files | `cd web && npm test` |
+| Scraper | `scraper/tests/` | **220** test cases | `cd scraper && ../.venv/Scripts/python.exe -m pytest` |
+| Dashboard | `web/src/**/*.test.ts(x)` | **142** test cases in 17 files | `cd web && npm test` |
 
 Counts are test **cases**; table-driven tests count each input. CI runs both on every push.
 
