@@ -73,7 +73,7 @@ def collect(session, cfg):
     for kw in cfg["keywords"]:
         searches.append((kw, kw, {"location": api.CEBU,
                                   "distance_kms": cfg["cebu_distance_kms"]}))
-        if cfg["search_remote_outside_cebu"]:
+        if cfg["remote_elsewhere"]["linkedin"]:
             # Logged out, LinkedIn ignores its remote filter; the keyword nudges
             # results that way and evaluate_jobs() drops non-remote ones.
             searches.append((f"{kw} remote", f"{kw} [remote]", {"location": api.PHILIPPINES}))

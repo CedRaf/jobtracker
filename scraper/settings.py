@@ -38,6 +38,10 @@ START_TIME = re.compile(r"^([01]\d|2[0-3]):(00|15|30|45)$")
 MAX_RUNS_PER_DAY = 6
 MIN_GAP_MINUTES = 30
 
+# Sites with a Cebu search that can also search remote jobs outside Cebu.
+# Himalayas only lists remote jobs, so it has no such switch.
+REMOTE_SEARCH_SITES = ("jobstreet", "linkedin")
+
 
 class SettingsError(ValueError):
     """The settings are malformed; the message says where."""
@@ -112,8 +116,22 @@ def _search(raw, default):
         "listed_within_days": _int(get("listed_within_days"), "search.listed_within_days", 1, 30),
         "max_pages_per_search": _int(get("max_pages_per_search"), "search.max_pages_per_search", 1, 10),
         "radius_km": _int(get("radius_km"), "search.radius_km", 1, 500),
-        "search_remote_elsewhere": _bool(get("search_remote_elsewhere"), "search.search_remote_elsewhere"),
+        "remote_elsewhere": _remote_elsewhere(raw, default["remote_elsewhere"]),
     }
+
+
+def _remote_elsewhere(search, default):
+    """Per site: also search remote jobs outside Cebu?
+
+    Versions saved before 2026-11-06 have one switch for every site
+    (search_remote_elsewhere); it applies to each of them.
+    """
+    if "remote_elsewhere" not in search and "search_remote_elsewhere" in search:
+        shared = _bool(search["search_remote_elsewhere"], "search.search_remote_elsewhere")
+        return {site: shared for site in REMOTE_SEARCH_SITES}
+    raw = _dict(search.get("remote_elsewhere", default), "search.remote_elsewhere")
+    return {site: _bool(raw.get(site, default[site]), f"search.remote_elsewhere.{site}")
+            for site in REMOTE_SEARCH_SITES}
 
 
 def _entry_level(raw, default):
@@ -279,6 +297,6 @@ def search_config(settings):
         "listed_within_days": s["listed_within_days"],
         "max_pages_per_search": s["max_pages_per_search"],
         "cebu_distance_kms": s["radius_km"],
-        "search_remote_outside_cebu": s["search_remote_elsewhere"],
+        "remote_elsewhere": s["remote_elsewhere"],
         "min_match_score": settings["min_match_score"],
     }

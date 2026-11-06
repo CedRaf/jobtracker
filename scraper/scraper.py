@@ -122,7 +122,7 @@ def collect(session, cfg):
     for kw in cfg["keywords"]:
         searches.append((kw, kw, {"location": cfg["cebu_location"],
                                   "distance_kms": cfg["cebu_distance_kms"]}))
-        if cfg["search_remote_outside_cebu"]:
+        if cfg["remote_elsewhere"]["jobstreet"]:
             searches.append((kw, f"{kw} [remote]", {"remote_only": True}))
 
     days = cfg.get("listed_within_days")
