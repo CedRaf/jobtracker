@@ -364,7 +364,8 @@ function TitleRulesTab() {
   return (
     <Flex vertical gap={8}>
       <Hint>
-        A job is dropped before its description is fetched if its title contains any word from a switched-on rule.
+        A job is dropped before its description is fetched if its title contains any word from a switched-on rule,
+        unless the title also has one of that rule's “unless” words.
         The rule's name is what the Filtered page shows. {MATCHING_HINT}
       </Hint>
       <Form.List name="title_rules">
@@ -376,7 +377,7 @@ function TitleRulesTab() {
                   highlight={highlight} dropped={filtered.data ? dropped : undefined} />
               ))}
             </RuleList>
-            <Button icon={<PlusOutlined />} onClick={() => add({ label: '', enabled: true, words: [] })}
+            <Button icon={<PlusOutlined />} onClick={() => add({ label: '', enabled: true, words: [], unless: [] })}
               style={{ alignSelf: 'start' }}>Add title rule</Button>
           </Flex>
         )}
@@ -415,6 +416,11 @@ function TitleRuleCard({ field, onRemove, highlight, dropped }: {
         <div style={{ flex: '1 1 320px', minWidth: 0 }}>
           <Form.Item name={[field.name, 'words']} noStyle>
             <WordsInput placeholder="Words or phrases in the title" aria-label={`Words for ${label || 'this rule'}`} />
+          </Form.Item>
+        </div>
+        <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+          <Form.Item name={[field.name, 'unless']} noStyle>
+            <WordsInput placeholder="Unless the title also has…" aria-label={`Words that keep a job for ${label || 'this rule'}`} />
           </Form.Item>
         </div>
         <Tooltip title="Delete rule">

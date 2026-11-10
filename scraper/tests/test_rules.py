@@ -38,6 +38,30 @@ def test_title_drops(make_job, title, label):
     assert reason is not None and reason.startswith(label)
 
 
+@pytest.mark.parametrize("title", [
+    "Application Support Developer (AU Education, WFH)",
+    "App Dev & Support Engineer III",
+    "Point of Sales Developer",
+])
+def test_unless_words_keep_the_job(make_job, title):
+    assert rules.title_drop_reason(make_job(title=title)) is None
+
+
+@pytest.mark.parametrize("title", [
+    "Application Support Engineer",
+    "Sales Associate",
+])
+def test_unless_words_only_apply_when_present(make_job, title):
+    assert rules.title_drop_reason(make_job(title=title)) is not None
+
+
+def test_unless_words_come_from_the_settings(make_job):
+    rule = {"label": "support role", "enabled": True, "words": ["support engineer"], "unless": ["backend"]}
+    rules.configure({"title_rules": [rule]})
+    assert rules.title_drop_reason(make_job(title="Backend & Support Engineer")) is None
+    assert rules.title_drop_reason(make_job(title="Support Engineer")) is not None
+
+
 def test_title_drop_handles_missing_title(make_job):
     assert rules.title_drop_reason(make_job(title=None)) is None
 
@@ -109,6 +133,45 @@ def test_evaluate_drops(make_job, description, reason_start):
 def test_negated_night_shift_is_not_dropped(make_job, description):
     reason, _ = rules.evaluate(make_job(), description)
     assert reason is None
+
+
+@pytest.mark.parametrize("description", [
+    "Availability for overlap with U.S. business hours.",
+    "Some overlap with US hours is needed for standups.",
+    "Not US hours; we work Manila time.",
+])
+def test_us_hours_overlap_or_negated_is_not_dropped(make_job, description):
+    reason, _ = rules.evaluate(make_job(), description)
+    assert reason is None
+
+
+def test_us_hours_dropped_when_also_required_elsewhere(make_job):
+    text = "Some overlap with US hours. Schedule: US shift, Monday to Friday."
+    reason, _ = rules.evaluate(make_job(), text)
+    assert reason == "US/foreign hours (US shift)"
+
+
+# ---- low_score_reason --------------------------------------------------------
+
+LONG = "x" * rules.MIN_DESCRIPTION_CHARS
+
+
+def test_low_score_drops_with_a_full_description():
+    extra = {"match_score": 1, "flags": ""}
+    assert rules.low_score_reason(extra, LONG, 3) == "low skill match (score 1)"
+    assert extra["flags"] == ""
+
+
+def test_short_description_is_kept_and_flagged():
+    extra = {"match_score": 0, "flags": "!no work arrangement listed"}
+    assert rules.low_score_reason(extra, "A short summary.", 3) is None
+    assert extra["flags"] == "!no work arrangement listed; !short description"
+
+
+def test_enough_score_is_never_flagged_short():
+    extra = {"match_score": 5, "flags": ""}
+    assert rules.low_score_reason(extra, "short", 3) is None
+    assert extra["flags"] == ""
 
 
 # ---- evaluate: flags and skills ---------------------------------------------

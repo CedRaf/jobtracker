@@ -58,7 +58,13 @@ def test_invalid_settings_are_rejected(change, message):
 
 def test_a_disabled_title_rule_may_have_no_words():
     clean = settings.validate({"title_rules": [{"label": "x", "enabled": False, "words": []}]})
-    assert clean["title_rules"] == [{"label": "x", "enabled": False, "words": []}]
+    assert clean["title_rules"] == [{"label": "x", "enabled": False, "words": [], "unless": []}]
+
+
+def test_title_rule_unless_words_are_cleaned():
+    clean = settings.validate({"title_rules": [
+        {"label": "x", "enabled": True, "words": ["support"], "unless": [" Developer ", "developer"]}]})
+    assert clean["title_rules"][0]["unless"] == ["Developer"]
 
 
 # ---- sources: which sites run, and when ------------------------------------------------
@@ -145,11 +151,13 @@ def test_search_config_uses_the_scrapers_names():
 def test_migration_seeds_the_defaults():
     # Sections added after the migration (entry_level, sources) aren't in the seed;
     # versions without them use the defaults, so the rest must match exactly. The seed
-    # has the old shared remote switch (search_remote_elsewhere) instead of one per site.
+    # has the old shared remote switch (search_remote_elsewhere) instead of one per site,
+    # and predates the title rules' "unless" words.
     sql = next((ROOT / "supabase" / "migrations").glob("*_scraper_settings.sql")).read_text(encoding="utf-8")
     seed = json.loads(re.search(r"\$settings\$(.*?)\$settings\$", sql, re.S).group(1))
     added_later = {"entry_level", "sources"}
     expected = {k: v for k, v in defaults().items() if k not in added_later}
+    expected["title_rules"] = [{k: v for k, v in r.items() if k != "unless"} for r in expected["title_rules"]]
     seed_search = dict(seed["search"])
     assert seed_search.pop("search_remote_elsewhere") is True
     assert {**seed, "search": seed_search} == {

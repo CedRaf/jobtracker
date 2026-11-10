@@ -128,6 +128,8 @@ export interface TitleRule {
   label: string
   enabled: boolean
   words: string[]
+  /** Keep the job anyway when its title also has one of these (e.g. "developer"). */
+  unless?: string[]
 }
 
 export interface SkillSetting {

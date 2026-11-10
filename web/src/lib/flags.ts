@@ -1,6 +1,7 @@
 // The scraper prefixes flags with "!" (a concern) or "+" (a good sign).
 // Every flag it can emit is listed in FLAG_CATEGORIES (see scraper/rules.py
-// evaluate() and scraper.py "!details unavailable"); keep the two in sync.
+// evaluate() and low_score_reason(), and scraper.py "!details unavailable");
+// keep the two in sync.
 
 export type FlagTone = 'warning' | 'positive' | 'neutral'
 
@@ -41,6 +42,7 @@ export const FLAG_CATEGORIES: FlagCategory[] = [
   { key: 'no-arrangement', label: 'No work arrangement listed', tone: 'warning', match: /^!no work arrangement/ },
   { key: 'previous-employer', label: 'Previous employer', tone: 'warning', match: /^!previous employer/ },
   { key: 'details-unavailable', label: 'Details unavailable', tone: 'warning', match: /^!details unavailable/ },
+  { key: 'short-description', label: 'Short description (not scored)', tone: 'warning', match: /^!short description/ },
 ]
 
 /** The category keys a job's flags fall into. */

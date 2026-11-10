@@ -98,7 +98,12 @@ export function normalizeSettings(s: ScraperSettings): ScraperSettings {
       drop_years: s.experience.drop_years ?? null,
     },
     checks: { ...s.checks },
-    title_rules: s.title_rules.map((r) => ({ label: r.label.trim(), enabled: r.enabled, words: cleanWords(r.words) })),
+    title_rules: s.title_rules.map((r) => ({
+      label: r.label.trim(),
+      enabled: r.enabled,
+      words: cleanWords(r.words),
+      unless: cleanWords(r.unless),
+    })),
     skills: s.skills.map((k) => ({
       name: k.name.trim(),
       weight: k.weight,
@@ -154,7 +159,7 @@ export function settingsProblems(raw: ScraperSettings): string[] {
     const name = r.label || `rule ${i + 1}`
     if (!r.label) problems.push(`Title rules: rule ${i + 1} needs a name`)
     if (r.enabled && !r.words.length) problems.push(`Title rules: "${name}" is on but has no words`)
-    words(r.words, `Title rule "${name}"`)
+    words([...r.words, ...(r.unless ?? [])], `Title rule "${name}"`)
   })
   for (const name of duplicates(s.title_rules.map((r) => r.label).filter(Boolean))) {
     problems.push(`Title rules: "${name}" appears twice`)
