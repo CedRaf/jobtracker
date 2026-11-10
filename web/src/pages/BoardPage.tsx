@@ -9,6 +9,7 @@ import { jobKeyString } from '../data/types'
 import { useJobs, useSourceLabel, useSources, useUpdateJob } from '../data/hooks'
 import { CompanyAvatar } from '../components/CompanyAvatar'
 import { JobDrawer } from '../components/JobDrawer'
+import { LogApplicationButton } from '../components/LogApplication'
 import { StatusDot } from '../components/StatusControl'
 import { useChangeStatus } from '../components/useChangeStatus'
 import { errorText, fromNow } from '../lib/format'
@@ -93,6 +94,7 @@ export function BoardPage() {
           </Typography.Text>
         </div>
         <Flex gap={16} align="center" wrap>
+          <LogApplicationButton onLogged={(job) => setOpenKey(jobKeyString(job))} />
           {sources.length > 1 && (
             <Segmented value={source} onChange={(v) => setSource(v as SourceFilter)} aria-label="Source"
               options={[

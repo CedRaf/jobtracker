@@ -80,3 +80,22 @@ it('leaves the application fields out until you apply', async () => {
   const drawer = await screen.findByRole('dialog')
   expect(within(drawer).queryByLabelText('Channel')).not.toBeInTheDocument()
 })
+
+it('logs an application no scraper found and opens it', async () => {
+  const api = renderWithApi(<BoardPage />)
+  await screen.findByText('Junior Full Stack Developer')
+  await userEvent.click(screen.getByRole('button', { name: /Log application/ }))
+  const dialog = await screen.findByRole('dialog', { name: 'Log an application' })
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Log application' }))
+  expect(await within(dialog).findByText('Name the role')).toBeInTheDocument()
+
+  await userEvent.type(within(dialog).getByLabelText('Role'), 'Platform Engineer')
+  await userEvent.type(within(dialog).getByLabelText(/^Company/), 'Referral Co')
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Log application' }))
+
+  expect(await screen.findByText('Application logged')).toBeInTheDocument()
+  const logged = (await api.listJobs()).find((j) => j.title === 'Platform Engineer')!
+  expect(logged).toMatchObject({ source: 'manual', status: 'applied', channel: 'referral', company: 'Referral Co' })
+  expect(logged.applied_at).not.toBeNull()
+  expect(within(column(/^Applied:/)).getByText('Platform Engineer')).toBeInTheDocument()
+})
