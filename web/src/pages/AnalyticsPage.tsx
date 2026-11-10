@@ -13,7 +13,7 @@ import {
 import { BarList, ChartCard, DailyJobsChart } from '../components/charts'
 import { ToneTag } from '../components/Tags'
 import {
-  funnel, jobsPerDay, median, reasonCounts, responseDays, runState, seenWithin, skillDemand, staleSources,
+  daysToResponse, funnel, jobsPerDay, median, reasonCounts, runState, seenWithin, skillDemand, staleSources,
   successRate, type DayCount, type FunnelStage, type RunState, type SkillCount,
 } from '../lib/analytics'
 import { dateTime, errorText, fromNow } from '../lib/format'
@@ -47,10 +47,13 @@ export function AnalyticsPage() {
   const daily = useMemo(() => jobsPerDay(inPeriod, Math.min(days, 90)), [inPeriod, days])
   const skills = useMemo(() => skillDemand(inPeriod), [inPeriod])
   const flow = useMemo(() => funnel(inPeriod, history.data ?? []), [inPeriod, history.data])
-  const waits = useMemo(() => {
-    const ids = new Set(inPeriod.map((j) => `${j.source}:${j.external_id}`))
-    return responseDays((history.data ?? []).filter((h) => ids.has(`${h.job_source}:${h.job_external_id}`)))
-  }, [inPeriod, history.data])
+  const waits = useMemo(
+    () => inPeriod.flatMap((j) => {
+      const d = daysToResponse(j)
+      return d === null ? [] : [d]
+    }),
+    [inPeriod],
+  )
   // Rule names come from the scraper in lower case; the Filtered page capitalises them too.
   const reasons = useMemo(
     () => reasonCounts(filtered.data ?? []).map((r) => ({
