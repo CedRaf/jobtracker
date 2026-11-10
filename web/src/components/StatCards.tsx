@@ -14,7 +14,7 @@ const STATS: Stat[] = [
   { key: 'to-review', title: 'To review', statuses: ['new'] },
   { key: 'new-since', title: 'New since last visit', newOnly: true },
   { key: 'applied', title: 'Applied / emailed', statuses: ['applied', 'emailed'] },
-  { key: 'interview', title: 'Interviewing', statuses: ['interview'] },
+  { key: 'interview', title: 'Exam / interview', statuses: ['exam', 'interview'] },
   { key: 'offer', title: 'Offers', statuses: ['offer'] },
 ]
 

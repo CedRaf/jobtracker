@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithApi } from '../test/renderWithApi'
 import { createTwoSiteApi } from '../test/twoSiteApi'
@@ -37,4 +37,46 @@ it('opens a card in the job drawer', async () => {
   renderWithApi(<BoardPage />)
   await userEvent.click(await screen.findByText('Junior Full Stack Developer'))
   expect(await screen.findByRole('dialog')).toHaveTextContent('Lumen Labs')
+})
+
+it('has an Exam column between Emailed and Interview', async () => {
+  renderWithApi(<BoardPage />)
+  await screen.findByText('Full Stack Engineer')
+  const names = screen.getAllByRole('listitem').map((c) => c.getAttribute('aria-label')?.split(':')[0])
+  expect(names.slice(0, 6)).toEqual(['New', 'Applied', 'Emailed', 'Exam', 'Interview', 'Offer'])
+})
+
+it('can show only the applications you logged yourself', async () => {
+  const api = createTwoSiteApi()
+  renderWithApi(<BoardPage />, api)
+  await screen.findByText('Junior Full Stack Developer')
+  await userEvent.click(screen.getByText('Logged by you'))
+  expect(screen.queryByText('Junior Full Stack Developer')).not.toBeInTheDocument()
+  const manual = (await api.listJobs()).filter((j) => j.source === 'manual' && j.status !== 'rejected')
+  expect(screen.getAllByText(manual[0].title).length).toBeGreaterThan(0)
+})
+
+it('sets how you applied from the drawer, saving each change at once', async () => {
+  const api = renderWithApi(<BoardPage />)
+  await userEvent.click(await screen.findByText('.NET Developer (Junior)'))
+  const drawer = await screen.findByRole('dialog')
+  expect(within(drawer).getByText(/Outcome: No reply/)).toBeInTheDocument()
+
+  await userEvent.click(within(drawer).getByLabelText('Channel'))
+  await userEvent.click(await screen.findByTitle('Referral'))
+  await userEvent.click(within(drawer).getByLabelText('Resume'))
+  await userEvent.type(await screen.findByLabelText('New resume version'), 'Data / ML')
+  await userEvent.click(screen.getByRole('button', { name: /Add/ }))
+
+  await waitFor(async () => {
+    const job = (await api.listJobs()).find((j) => j.title === '.NET Developer (Junior)')!
+    expect(job).toMatchObject({ channel: 'referral', resume_version: 'data_ml' })
+  })
+})
+
+it('leaves the application fields out until you apply', async () => {
+  renderWithApi(<BoardPage />)
+  await userEvent.click(await screen.findByText('Junior Full Stack Developer'))
+  const drawer = await screen.findByRole('dialog')
+  expect(within(drawer).queryByLabelText('Channel')).not.toBeInTheDocument()
 })

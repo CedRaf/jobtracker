@@ -4,7 +4,7 @@ import {
   useSensors, type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core'
 import { Alert, Button, Flex, Input, Modal, Segmented, Skeleton, Switch, theme, Typography } from 'antd'
-import type { Job, JobSource, JobStatus } from '../data/types'
+import type { Job, JobOrigin, JobStatus } from '../data/types'
 import { jobKeyString } from '../data/types'
 import { useJobs, useSourceLabel, useSources, useUpdateJob } from '../data/hooks'
 import { CompanyAvatar } from '../components/CompanyAvatar'
@@ -16,10 +16,10 @@ import { STATUS_META } from '../lib/status'
 import { useEntryLevel, type EntryLevel } from '../lib/entryLevel'
 import { EntryLevelTag } from '../components/Tags'
 
-const OPEN_COLUMNS: JobStatus[] = ['new', 'applied', 'emailed', 'interview', 'offer']
+const OPEN_COLUMNS: JobStatus[] = ['new', 'applied', 'emailed', 'exam', 'interview', 'offer']
 const CLOSED_COLUMNS: JobStatus[] = ['rejected', 'skip']
 
-type SourceFilter = JobSource | 'all'
+type SourceFilter = JobOrigin | 'all'
 
 /** Most recently moved (or found) first. */
 const byRecent = (a: Job, b: Job) =>
@@ -95,7 +95,11 @@ export function BoardPage() {
         <Flex gap={16} align="center" wrap>
           {sources.length > 1 && (
             <Segmented value={source} onChange={(v) => setSource(v as SourceFilter)} aria-label="Source"
-              options={[{ label: 'All', value: 'all' }, ...sources.map((s) => ({ label: site.label(s), value: s }))]} />
+              options={[
+                { label: 'All', value: 'all' },
+                ...sources.map((s) => ({ label: site.label(s), value: s })),
+                ...(all.some((j) => j.source === 'manual') ? [{ label: site.label('manual'), value: 'manual' }] : []),
+              ]} />
           )}
           <Flex gap={8} align="center">
             <Switch checked={showClosed} onChange={setShowClosed} id="show-closed" size="small" />
@@ -233,7 +237,8 @@ function Card({ job, entry, overlay }: { job: Job; entry: EntryLevel; overlay?: 
             {job.company ?? 'Unknown company'} · {job.location ?? 'No location'}
           </Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {site.multi && `${site.label(job.source)} · `}{fromNow(job.status_changed_at ?? job.first_seen)}
+            {(site.multi || job.source === 'manual') && `${site.label(job.source)} · `}
+            {fromNow(job.status_changed_at ?? job.first_seen)}
           </Typography.Text>
           {entry && <div style={{ marginTop: 2 }}><EntryLevelTag level={entry} /></div>}
         </Flex>

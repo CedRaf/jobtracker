@@ -106,7 +106,7 @@ export function JobsPage() {
     filters.newOnly ? 'new-since'
       : sameStatuses(filters.statuses, ['new']) ? 'to-review'
         : sameStatuses(filters.statuses, ['applied', 'emailed']) ? 'applied'
-          : sameStatuses(filters.statuses, ['interview']) ? 'interview'
+          : sameStatuses(filters.statuses, ['exam', 'interview']) ? 'interview'
             : sameStatuses(filters.statuses, ['offer']) ? 'offer'
               : null
 

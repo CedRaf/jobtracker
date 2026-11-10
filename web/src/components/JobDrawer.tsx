@@ -8,6 +8,7 @@ import { jobKeyString } from '../data/types'
 import { useJobDescription, useSourceLabel, useUpdateJob } from '../data/hooks'
 import { dateTime, errorText, fromNow } from '../lib/format'
 import { SHOW_MATCH_SCORE } from '../lib/settings'
+import { ApplicationFields, APPLIED_STATUSES } from './ApplicationFields'
 import { CompanyAvatar } from './CompanyAvatar'
 import { DraftEmailButton } from './DraftEmail'
 import { StatusSelect } from './StatusControl'
@@ -23,6 +24,8 @@ interface Props {
   onPrev?: () => void
   onNext?: () => void
 }
+
+const isApplication = (job: Job) => (APPLIED_STATUSES as readonly string[]).includes(job.status)
 
 /** True when a key press is typing into a field rather than a shortcut. */
 const isTyping = (target: EventTarget | null) =>
@@ -79,7 +82,7 @@ export function JobDrawer({ job, onClose, position, onPrev, onNext }: Props) {
       size={screens.md ? 720 : '100%'}
       destroyOnHidden
       title={job?.title}
-      extra={job && (
+      extra={job?.url && (
         <Button href={job.url} target="_blank" rel="noreferrer" icon={<ExportOutlined />}
           aria-label={screens.sm ? undefined : 'Open listing'}>
           {screens.sm && 'Open listing'}
@@ -141,13 +144,20 @@ function JobDetails({ job, onDirtyChange }: { job: Job; onDirtyChange: (dirty: b
             <EntryLevelTag level={entry} />
           </Flex>
           <Typography.Text type="secondary">
-            {job.location ?? 'No location'}{site.multi && ` · ${site.label(job.source)}`} · found {fromNow(job.first_seen)}
+            {job.location ?? 'No location'}
+            {(site.multi || job.source === 'manual') && ` · ${site.label(job.source)}`}
+            {job.source === 'manual' ? ` ${fromNow(job.first_seen)}` : ` · found ${fromNow(job.first_seen)}`}
           </Typography.Text>
           {SHOW_MATCH_SCORE && <Typography.Text type="secondary"> · Match score {job.match_score}</Typography.Text>}
         </div>
       </Flex>
 
       <EditForm job={job} onDirtyChange={onDirtyChange} />
+
+      {/* Once you've applied (or set something already): how, for the analytics. */}
+      {(isApplication(job) || job.channel !== 'unknown' || job.resume_version !== 'unknown') && (
+        <ApplicationFields job={job} />
+      )}
 
       {(job.flags.length > 0 || job.matched_skills.length > 0 || job.missing_skills.length > 0) && (
         <Flex vertical gap={12}>

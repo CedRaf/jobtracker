@@ -83,7 +83,7 @@ describe('JobsPage', () => {
   it('filters to a status from its summary card', async () => {
     renderPage()
     await screen.findByText('Junior Full Stack Developer')
-    await userEvent.click(screen.getByRole('button', { name: /Interviewing/ }))
+    await userEvent.click(screen.getByRole('button', { name: /Exam \/ interview/ }))
     expect(screen.getByText('Full Stack Engineer')).toBeInTheDocument()
     expect(screen.queryByText('Junior Full Stack Developer')).not.toBeInTheDocument()
   })
