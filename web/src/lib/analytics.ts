@@ -19,7 +19,10 @@ export interface DayCount {
   himalayas: number
 }
 
-/** Kept jobs per day and source for the last `days` days (oldest first, empty days included). */
+/**
+ * Kept jobs per day and source for the last `days` days (oldest first, empty
+ * days included). Applications you logged yourself weren't found by a scraper.
+ */
 export function jobsPerDay(jobs: Pick<Job, 'source' | 'first_seen'>[], days: number, now = dayjs()): DayCount[] {
   const counts = new Map<string, DayCount>()
   for (let i = days - 1; i >= 0; i--) {
@@ -28,7 +31,7 @@ export function jobsPerDay(jobs: Pick<Job, 'source' | 'first_seen'>[], days: num
   }
   for (const job of jobs) {
     const entry = counts.get(dayjs(job.first_seen).format('YYYY-MM-DD'))
-    if (entry) entry[job.source] += 1
+    if (entry && job.source !== 'manual') entry[job.source] += 1
   }
   return [...counts.values()]
 }

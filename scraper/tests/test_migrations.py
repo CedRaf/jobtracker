@@ -162,6 +162,24 @@ def test_exam_sits_between_emailed_and_interview(db):
     assert ("manual",) in enum_values(db, "job_source")
 
 
+def ts_union(name):
+    """The string values of `export type <name> = 'a' | 'b' | ...` in web/src/data/types.ts."""
+    source = (ROOT / "web" / "src" / "data" / "types.ts").read_text(encoding="utf-8")
+    body = re.search(rf"export type {name} =((?:\s*\|?\s*'[a-z_]+')+)", source).group(1)
+    return set(re.findall(r"'([a-z_]+)'", body))
+
+
+@pytest.mark.parametrize("sql_type, ts_type, extra", [
+    ("job_status", "JobStatus", set()),
+    ("job_source", "JobSource", {"manual"}),  # JobOrigin = JobSource | 'manual'
+    ("application_channel", "ApplicationChannel", set()),
+    ("role_type", "RoleType", set()),
+    ("work_setup", "WorkSetup", set()),
+])
+def test_dashboard_types_match_the_enums(db, sql_type, ts_type, extra):
+    assert {v for (v,) in enum_values(db, sql_type)} == ts_union(ts_type) | extra
+
+
 # ---- backfill -----------------------------------------------------------------------
 
 

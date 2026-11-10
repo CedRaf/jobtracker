@@ -1,7 +1,9 @@
 import { createClient, type User } from '@supabase/supabase-js'
 import type {
-  AppUser, DataApi, FilteredJob, Job, JobKey, ScrapeRun, ScraperDispatch, SettingsVersion, StatusChange,
+  AppUser, DataApi, FilteredJob, Job, JobKey, ResumeVersion, ScrapeRun, ScraperDispatch, SettingsVersion,
+  StatusChange,
 } from './types'
+import { resumeKey } from '../lib/application'
 
 // Everything except the description, which is only loaded for the open job.
 const JOB_COLUMNS = [
@@ -9,6 +11,7 @@ const JOB_COLUMNS = [
   'salary_text', 'seniority', 'posted_at', 'apply_type', 'apply_link', 'match_score',
   'matched_skills', 'missing_skills', 'flags', 'emails', 'email_source', 'url', 'search_terms',
   'status', 'status_changed_at', 'skip_reason', 'notes', 'email_drafted_at', 'first_seen',
+  'channel', 'resume_version', 'role_type', 'work_setup', 'applied_at', 'first_response_at',
 ].join(',')
 
 const FILTERED_COLUMNS =
@@ -53,7 +56,7 @@ export function createSupabaseApi(url: string, publishableKey: string): DataApi 
   return {
     demo: false,
     sources: ['jobstreet', 'linkedin', 'himalayas'],
-    sourceLabels: { jobstreet: 'JobStreet', linkedin: 'LinkedIn', himalayas: 'Himalayas' },
+    sourceLabels: { jobstreet: 'JobStreet', linkedin: 'LinkedIn', himalayas: 'Himalayas', manual: 'Logged by you' },
 
     listJobs: () =>
       fetchAll<Job>((from, to) =>
@@ -84,6 +87,39 @@ export function createSupabaseApi(url: string, publishableKey: string): DataApi 
         .single<Job>()
       if (error) throw error
       return data ?? []
+    },
+
+    async logApplication(application) {
+      // Row-level security only lets the dashboard insert 'manual' jobs.
+      const { data, error } = await supabase
+        .from('jobs')
+        .insert({ ...application, source: 'manual', external_id: crypto.randomUUID() })
+        .select(JOB_COLUMNS)
+        .single<Job>()
+      if (error) throw error
+      return data
+    },
+
+    async listResumeVersions() {
+      const { data, error } = await supabase
+        .from('resume_versions')
+        .select('key,label')
+        .order('created_at', { ascending: true })
+        .returns<ResumeVersion[]>()
+      if (error) throw error
+      return data ?? []
+    },
+
+    async addResumeVersion(label) {
+      const key = resumeKey(label)
+      if (!key) throw new Error('Use at least one letter or digit in the name.')
+      const { data, error } = await supabase
+        .from('resume_versions')
+        .insert({ key, label: label.trim() })
+        .select('key,label')
+        .single<ResumeVersion>()
+      if (error) throw error
+      return data
     },
 
     listFilteredJobs(days) {

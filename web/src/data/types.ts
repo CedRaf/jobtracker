@@ -1,6 +1,10 @@
-// Mirrors supabase/migrations/*_init.sql. Keep the two in sync.
+// Mirrors supabase/migrations/*.sql. Keep the two in sync (scraper/tests/test_migrations.py
+// checks the enums).
 
+/** The job sites the scraper searches. */
 export type JobSource = 'jobstreet' | 'linkedin' | 'himalayas'
+/** Where a job came from: a scraped site, or 'manual' for an application you logged yourself. */
+export type JobOrigin = JobSource | 'manual'
 /** Sites with a Cebu search that can also search remote jobs outside Cebu (Himalayas only lists remote jobs). */
 export type RemoteSearchSite = Exclude<JobSource, 'himalayas'>
 
@@ -8,13 +12,14 @@ export type JobStatus =
   | 'new'
   | 'applied'
   | 'emailed'
+  | 'exam'
   | 'interview'
   | 'offer'
   | 'rejected'
   | 'skip'
 
 export interface JobKey {
-  source: JobSource
+  source: JobOrigin
   external_id: string
 }
 
@@ -44,12 +49,49 @@ export interface Job extends JobKey {
   notes: string | null
   email_drafted_at: string | null
   first_seen: string
+  // How you applied (application tracking). 'unknown' until set.
+  channel: ApplicationChannel
+  /** A key from resume_versions (DataApi.listResumeVersions). */
+  resume_version: string
+  role_type: RoleType
+  work_setup: WorkSetup
+  /** Set by the database the first time the job reaches Applied or later; editable. */
+  applied_at: string | null
+  /** Set by the database at the first exam/interview/offer/rejection after applying; editable. */
+  first_response_at: string | null
 }
 
+export type ApplicationChannel = 'unknown' | 'job_board' | 'direct_message' | 'referral' | 'company_site' | 'other'
+export type RoleType = 'unknown' | 'web' | 'ai' | 'other'
+export type WorkSetup = 'unknown' | 'cebu_onsite' | 'manila_onsite' | 'remote' | 'hybrid'
+
+/** The application fields you can edit. */
+export const APPLICATION_FIELDS = [
+  'channel', 'resume_version', 'role_type', 'work_setup', 'applied_at', 'first_response_at',
+] as const
+export type ApplicationFields = Pick<Job, (typeof APPLICATION_FIELDS)[number]>
+
 /** The columns the dashboard may change (the database only grants these). */
-export type JobPatch = Partial<Pick<Job, 'status' | 'skip_reason' | 'notes' | 'email_drafted_at'>>
+export type JobPatch = Partial<Pick<Job, 'status' | 'skip_reason' | 'notes' | 'email_drafted_at'> & ApplicationFields>
+
+/** An application you log yourself (a referral, a direct message, ...): stored as a 'manual' job. */
+export interface NewApplication extends Partial<ApplicationFields> {
+  title: string
+  company: string | null
+  location: string | null
+  url: string
+  status: JobStatus
+  notes: string | null
+}
+
+/** A resume variant (the resume_versions table). 'unknown' is always there. */
+export interface ResumeVersion {
+  key: string
+  label: string
+}
 
 export interface FilteredJob extends JobKey {
+  source: JobSource
   title: string
   company: string | null
   location: string | null
@@ -163,7 +205,7 @@ export interface SettingsVersion {
 
 /** One status change, recorded by a database trigger (the status_history table). */
 export interface StatusChange {
-  job_source: JobSource
+  job_source: JobOrigin
   job_external_id: string
   from_status: JobStatus | null
   to_status: JobStatus
@@ -180,11 +222,17 @@ export interface DataApi {
   demo: boolean
   /** The job sites this deployment shows (the public demo shows one). */
   sources: JobSource[]
-  /** Display names for the sites. */
-  sourceLabels: Record<JobSource, string>
+  /** Display names for the sites, and for applications you logged yourself. */
+  sourceLabels: Record<JobOrigin, string>
   listJobs(): Promise<Job[]>
   getDescription(key: JobKey): Promise<string | null>
   updateJob(key: JobKey, patch: JobPatch): Promise<Job>
+  /** Logs an application no scraper found, as a 'manual' job. */
+  logApplication(application: NewApplication): Promise<Job>
+  /** Resume variants, 'unknown' first. */
+  listResumeVersions(): Promise<ResumeVersion[]>
+  /** Adds a resume variant; its key is made from the label. */
+  addResumeVersion(label: string): Promise<ResumeVersion>
   /** Filtered-out jobs first seen in the last `days` days. */
   listFilteredJobs(days: number): Promise<FilteredJob[]>
   /** The most recent run for each source (at most one per source). */

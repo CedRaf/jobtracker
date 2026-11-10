@@ -1,6 +1,8 @@
 import { createContext, useContext } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { DataApi, Job, JobKey, JobPatch, JobSource, ScraperSettings, SettingsVersion } from './types'
+import type {
+  DataApi, Job, JobKey, JobOrigin, JobPatch, NewApplication, ResumeVersion, ScraperSettings, SettingsVersion,
+} from './types'
 import { jobKeyString } from './types'
 
 export const ApiContext = createContext<DataApi | null>(null)
@@ -14,7 +16,7 @@ export const useSources = () => useApi().sources
  */
 export function useSourceLabel() {
   const api = useApi()
-  return { multi: api.sources.length > 1, label: (source: JobSource) => api.sourceLabels[source] }
+  return { multi: api.sources.length > 1, label: (source: JobOrigin) => api.sourceLabels[source] }
 }
 
 export function useApi(): DataApi {
@@ -117,4 +119,34 @@ export function useStatusHistory() {
 export function useFilteredJobs(days: number) {
   const api = useApi()
   return useQuery({ queryKey: ['filtered', days], queryFn: () => api.listFilteredJobs(days) })
+}
+
+/** Logs an application no scraper found; it appears on the board and in the analytics at once. */
+export function useLogApplication() {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (application: NewApplication) => api.logApplication(application),
+    onSuccess: (saved) => {
+      queryClient.setQueryData<Job[]>(JOBS, (jobs) => (jobs ? [saved, ...jobs] : jobs))
+      void queryClient.invalidateQueries({ queryKey: HISTORY })
+    },
+  })
+}
+
+const RESUMES = ['resumeVersions'] as const
+
+export function useResumeVersions() {
+  const api = useApi()
+  return useQuery({ queryKey: RESUMES, queryFn: () => api.listResumeVersions() })
+}
+
+export function useAddResumeVersion() {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (label: string) => api.addResumeVersion(label),
+    onSuccess: (added) =>
+      queryClient.setQueryData<ResumeVersion[]>(RESUMES, (versions) => (versions ? [...versions, added] : [added])),
+  })
 }

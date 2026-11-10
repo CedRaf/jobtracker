@@ -28,6 +28,12 @@ export function makeJob(overrides: Partial<Job> = {}): Job {
     notes: null,
     email_drafted_at: null,
     first_seen: '2026-10-20T00:00:00Z',
+    channel: 'unknown',
+    resume_version: 'unknown',
+    role_type: 'unknown',
+    work_setup: 'unknown',
+    applied_at: null,
+    first_response_at: null,
     ...overrides,
   }
 }

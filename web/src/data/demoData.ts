@@ -1,6 +1,8 @@
 // Made-up sample data for demo mode. No real listings or companies.
 // One job site only, with a generic name: the public demo doesn't show real site names.
-import type { FilteredJob, Job, JobStatus, ScrapeRun, StatusChange } from './types'
+import type {
+  ApplicationChannel, FilteredJob, Job, JobStatus, RoleType, ScrapeRun, StatusChange, WorkSetup,
+} from './types'
 
 const HOUR = 3_600_000
 const ago = (hours: number) => new Date(Date.now() - hours * HOUR).toISOString()
@@ -20,6 +22,11 @@ interface Seed {
   email?: string
   source?: Job['source']
   notes?: string
+  /** The status changes behind `status`: [status, hours after first seen]. Default: statusPath(status). */
+  path?: [JobStatus, number][]
+  channel?: ApplicationChannel
+  resume?: string
+  role?: RoleType
 }
 
 const SEEDS: Seed[] = [
@@ -74,12 +81,130 @@ function olderSeeds(): Seed[] {
   })
 }
 
+// Past applications with their attributes filled in, so the "what gets
+// responses" analytics have something to show. Responses are more likely for
+// referrals and direct messages, and when the resume matches the role.
+const PAST_TITLES: Record<Exclude<RoleType, 'unknown'>, string[]> = {
+  // Titles not used by the other demo jobs (the page tests look those up by
+  // name) and without Entry-level words, so they don't sort ahead of them.
+  web: ['Frontend Engineer', 'Full Stack Web Developer', 'Web Engineer', 'UI Developer'],
+  ai: ['ML Engineer', 'Machine Learning Developer', 'AI Application Developer'],
+  other: ['QA Engineer', 'Data Analyst'],
+}
+const PAST_COMPANIES = [
+  'Reefline Software', 'Kalinaw Labs', 'Tanaw Analytics', 'Bayanihan Cloud', 'Sinag Systems', 'Lantaw AI',
+  'Habagat Digital', 'Pulo Apps', 'Dagat Data', 'Alon Tech', 'Hiraya Studio', 'Kidlat Works',
+]
+const SETUP_PLACES: Record<Exclude<WorkSetup, 'unknown'>, [string, string[]]> = {
+  cebu_onsite: ['Cebu City, Cebu', ['On-site']],
+  manila_onsite: ['Makati, Metro Manila', ['On-site']],
+  remote: ['Philippines', ['Remote']],
+  hybrid: ['Cebu City, Cebu', ['Hybrid']],
+}
+const CHANNEL_BOOST: Record<ApplicationChannel, number> = {
+  referral: 0.45, direct_message: 0.15, company_site: 0.05, job_board: 0, other: 0, unknown: 0,
+}
+
+function pastApplications(): Seed[] {
+  const rand = random(7)
+  const pick = <T,>(items: T[]) => items[Math.floor(rand() * items.length)]
+  const weighted = <T extends string>(weights: [T, number][]): T => {
+    let r = rand() * weights.reduce((sum, [, w]) => sum + w, 0)
+    for (const [value, w] of weights) if ((r -= w) <= 0) return value
+    return weights[0][0]
+  }
+  return Array.from({ length: 64 }, (_, i) => {
+    const manual = i % 8 === 0
+    const channel = manual
+      ? weighted<ApplicationChannel>([['referral', 2], ['direct_message', 1], ['company_site', 1]])
+      : weighted<ApplicationChannel>([['job_board', 6], ['direct_message', 2], ['company_site', 1], ['referral', 0.5]])
+    const role = weighted<Exclude<RoleType, 'unknown'>>([['web', 6], ['ai', 3], ['other', 1]])
+    const resume = rand() < 0.75 ? (role === 'ai' ? 'ai' : 'web') : pick(['web', 'ai'])
+    const setup = weighted<Exclude<WorkSetup, 'unknown'>>([['cebu_onsite', 4], ['remote', 4], ['hybrid', 2], ['manila_onsite', 1]])
+    const hoursAgo = 100 + Math.round(rand() * 600)
+    const applied = manual ? 0 : 2 + Math.round(rand() * 20)
+    const chance = 0.18 + CHANNEL_BOOST[channel] + (resume === role ? 0.12 : 0) - (setup === 'remote' ? 0.08 : 0)
+
+    const path: [JobStatus, number][] = [[!manual && rand() < 0.3 ? 'emailed' : 'applied', applied]]
+    let at = applied + 24 * (1 + rand() * 13)
+    if (rand() < chance) {
+      // How far it got: an exam first for some, then maybe an interview and an offer.
+      const stages: JobStatus[] = []
+      const exam = rand() < 0.45
+      if (exam) stages.push('exam')
+      if (!exam || rand() < 0.55) {
+        stages.push('interview')
+        stages.push(rand() < 0.3 ? 'offer' : 'rejected')
+      } else {
+        stages.push('rejected')
+      }
+      if (!exam && stages[0] === 'interview' && rand() < 0.35) stages.splice(0, 2, 'rejected')
+      for (const stage of stages) {
+        if (at >= hoursAgo - 1) break // still waiting
+        path.push([stage, at])
+        at += 24 * (3 + rand() * 5)
+      }
+    }
+    const [location, arrangements] = SETUP_PLACES[setup]
+    return {
+      title: pick(PAST_TITLES[role]),
+      company: pick(PAST_COMPANIES),
+      location,
+      arrangements,
+      score: 8 + Math.round(rand() * 10),
+      skills: role === 'ai' ? ['Python', 'AI/LLM'] : ['TypeScript', 'React'],
+      status: path.at(-1)![0],
+      hoursAgo,
+      source: manual ? 'manual' : 'jobstreet',
+      path,
+      channel,
+      resume,
+      role,
+    }
+  })
+}
+
+// Mirrors public.guess_work_setup() in the application-tracking migration.
+function guessWorkSetup(arrangements: string[], location: string): WorkSetup {
+  const kinds = [...new Set(arrangements.map((a) => a.toLowerCase()))]
+  const only = (kind: string) => kinds.length === 1 && kinds[0] === kind
+  if (only('remote')) return 'remote'
+  if (kinds.includes('hybrid') && !kinds.includes('remote')) return 'hybrid'
+  if (only('on-site') && /cebu/i.test(location)) return 'cebu_onsite'
+  if (only('on-site') && /manila|makati|taguig|pasig|quezon city|mandaluyong/i.test(location)) return 'manila_onsite'
+  return 'unknown'
+}
+
+const APPLIED_STAGES: JobStatus[] = ['applied', 'emailed', 'exam', 'interview', 'offer', 'rejected']
+const RESPONSE_STAGES: JobStatus[] = ['exam', 'interview', 'offer', 'rejected']
+
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 
+/** Each demo job's status changes, by external_id (read by demoStatusHistory). */
+const paths = new Map<string, [JobStatus, number][]>()
+
 export function demoJobs(): Job[] {
-  return [...SEEDS, ...olderSeeds()].map((s, i) => {
+  const older = olderSeeds()
+  const extra = random(99)
+  return [...SEEDS, ...older, ...pastApplications()].map((s, i) => {
     const source = s.source ?? 'jobstreet'
     const external_id = String(90_000_000 + i * 7919)
+    const path = s.path ?? statusPath(s.status ?? 'new').map(([, to, after]): [JobStatus, number] => [to, after])
+    paths.set(external_id, path)
+    const firstSeen = Date.now() - s.hoursAgo * HOUR
+    const atHours = (hours: number | undefined) =>
+      hours === undefined ? null : new Date(firstSeen + hours * HOUR).toISOString()
+    // Like the database: applied_at at the first applied-or-later stage, the
+    // response at the first exam/interview/offer/rejection after it.
+    const appliedHours = path.find(([status]) => APPLIED_STAGES.includes(status))?.[1]
+    const responseHours = appliedHours === undefined ? undefined
+      : path.find(([status, after]) => RESPONSE_STAGES.includes(status) && after > appliedHours)?.[1]
+    const applied = appliedHours !== undefined
+    // The older jobs get attributes like a real backlog: some set, some left unknown.
+    const role: RoleType = s.role ?? (applied && extra() < 0.6 ? (extra() < 0.7 ? 'web' : 'ai') : 'unknown')
+    const resume = s.resume ?? (role === 'unknown' ? 'unknown' : role === 'ai' ? 'ai' : 'web')
+    const channel: ApplicationChannel = s.channel
+      ?? (!applied ? 'unknown' : path.some(([status]) => status === 'emailed') ? 'direct_message' : 'job_board')
     return {
       source,
       external_id,
@@ -102,13 +227,17 @@ export function demoJobs(): Job[] {
       url: `https://example.com/jobs/${slug(s.title)}-${external_id}`,
       search_terms: ['junior developer'],
       status: s.status ?? 'new',
-      status_changed_at: s.status && s.status !== 'new'
-        ? ago(Math.max(0.5, s.hoursAgo - statusPath(s.status).at(-1)![2]))
-        : null,
+      status_changed_at: path.length ? ago(Math.max(0.5, s.hoursAgo - path.at(-1)![1])) : null,
       skip_reason: s.status === 'skip' ? 'training bond' : null,
       notes: s.notes ?? null,
       email_drafted_at: s.status === 'emailed' ? ago(s.hoursAgo - 1) : null,
       first_seen: ago(s.hoursAgo),
+      channel,
+      resume_version: resume,
+      role_type: role,
+      work_setup: guessWorkSetup(s.arrangements, s.location),
+      applied_at: atHours(appliedHours),
+      first_response_at: atHours(responseHours),
     }
   })
 }
@@ -212,10 +341,11 @@ export const demoLatestRuns = () => demoScrapeRuns().slice(0, 1)
 export function demoStatusHistory(jobs: Job[]): StatusChange[] {
   return jobs
     .flatMap((job) =>
-      statusPath(job.status).map(([from, to, afterHours]) => ({
+      (paths.get(job.external_id) ?? []).map(([to, afterHours], i, path): StatusChange => ({
         job_source: job.source,
         job_external_id: job.external_id,
-        from_status: from,
+        // A logged application starts at its stage, as the database's insert trigger records it.
+        from_status: i > 0 ? path[i - 1][0] : job.source === 'manual' ? null : 'new',
         to_status: to,
         changed_at: new Date(Date.parse(job.first_seen) + afterHours * HOUR).toISOString(),
       })),
@@ -230,6 +360,7 @@ function statusPath(status: JobStatus): [JobStatus, JobStatus, number][] {
     case 'new': return []
     case 'applied': return [['new', 'applied', 2]]
     case 'emailed': return [['new', 'emailed', 1]]
+    case 'exam': return [['new', 'applied', 2], ['applied', 'exam', 60]]
     case 'skip': return [['new', 'skip', 2]]
     case 'interview': return [['new', 'applied', 2], ['applied', 'interview', 54]]
     case 'rejected': return [['new', 'applied', 3], ['applied', 'rejected', 50]]

@@ -10,7 +10,7 @@ import type { PersistQueryClientOptions } from '@tanstack/react-query-persist-cl
 export const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000
 
 /** Bump when the shape of cached data changes, so old saved caches are thrown away. */
-export const CACHE_VERSION = '1'
+export const CACHE_VERSION = '2'
 
 export const CACHE_STORAGE_KEY = 'jobtracker:query-cache'
 
