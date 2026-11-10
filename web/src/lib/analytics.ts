@@ -160,6 +160,10 @@ export function applications(jobs: Job[], history: StatusChange[]): Application[
   })
 }
 
+/** Applications made in the last `days` days (by applied_at, or first_seen when that's unknown). */
+export const appliedWithin = (apps: Application[], days: number, now = Date.now()) =>
+  apps.filter((a) => Date.parse(a.job.applied_at ?? a.job.first_seen) >= now - days * DAY)
+
 /** Fewer applications than this in a group is too few to compare rates. */
 export const MIN_SAMPLE = 10
 

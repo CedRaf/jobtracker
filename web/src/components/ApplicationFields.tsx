@@ -10,9 +10,6 @@ import {
 import { daysToResponse, deriveOutcome, OUTCOME_LABELS } from '../lib/analytics'
 import { errorText } from '../lib/format'
 
-/** Statuses that mean you applied, so the drawer shows the application fields. */
-export const APPLIED_STATUSES = ['applied', 'emailed', 'exam', 'interview', 'offer', 'rejected'] as const
-
 const SELECT_WIDTH = 168
 
 /** A labelled field: the label sits above, like the drawer's other sections. */

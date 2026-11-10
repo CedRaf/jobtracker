@@ -11,9 +11,10 @@ import {
   useDispatches, useFilteredJobs, useJobs, useScrapeRuns, useSourceLabel, useSources, useStatusHistory,
 } from '../data/hooks'
 import { BarList, ChartCard, DailyJobsChart } from '../components/charts'
+import { DropOffCard, ResponseBreakdownCard } from '../components/StrategyCards'
 import { ToneTag } from '../components/Tags'
 import {
-  daysToResponse, funnel, jobsPerDay, median, reasonCounts, runState, seenWithin, skillDemand, staleSources,
+  applications, appliedWithin, daysToResponse, funnel, jobsPerDay, median, reasonCounts, runState, seenWithin, skillDemand, staleSources,
   successRate, type DayCount, type FunnelStage, type RunState, type SkillCount,
 } from '../lib/analytics'
 import { dateTime, errorText, fromNow } from '../lib/format'
@@ -47,6 +48,11 @@ export function AnalyticsPage() {
   const daily = useMemo(() => jobsPerDay(inPeriod, Math.min(days, 90)), [inPeriod, days])
   const skills = useMemo(() => skillDemand(inPeriod), [inPeriod])
   const flow = useMemo(() => funnel(inPeriod, history.data ?? []), [inPeriod, history.data])
+  // Applications by when you applied (or found the job, when that's unknown), not when it was found.
+  const apps = useMemo(
+    () => appliedWithin(applications(jobs.data ?? [], history.data ?? []), days),
+    [jobs.data, history.data, days],
+  )
   const waits = useMemo(
     () => inPeriod.flatMap((j) => {
       const d = daysToResponse(j)
@@ -96,13 +102,16 @@ export function AnalyticsPage() {
             <Col xs={12} md={6}><Tile label="Applied or emailed" value={flow.stages.find((s) => s.key === 'applied')!.count} /></Col>
             <Col xs={12} md={6}>
               <Tile label="Response rate" value={pct(flow.responseRate)}
-                hint="Applications that got an interview, offer or rejection" />
+                hint="Applications that got an exam, interview, offer or rejection" />
             </Col>
             <Col xs={12} md={6}>
               <Tile label="Median days to a response" value={medianWait === null ? '—' : oneDecimal(medianWait)}
-                hint={`From marking a job applied/emailed to its first response. Based on ${waits.length} ${waits.length === 1 ? 'job' : 'jobs'}.`} />
+                hint={`From applying to the first response (the dates on each application). Based on ${waits.length} ${waits.length === 1 ? 'job' : 'jobs'}.`} />
             </Col>
           </Row>
+
+          <ResponseBreakdownCard apps={apps} />
+          <DropOffCard apps={apps} />
 
           <ChartCard<DayCount>
             title="New jobs per day"

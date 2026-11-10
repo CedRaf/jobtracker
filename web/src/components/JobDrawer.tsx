@@ -8,7 +8,8 @@ import { jobKeyString } from '../data/types'
 import { useJobDescription, useSourceLabel, useUpdateJob } from '../data/hooks'
 import { dateTime, errorText, fromNow } from '../lib/format'
 import { SHOW_MATCH_SCORE } from '../lib/settings'
-import { ApplicationFields, APPLIED_STATUSES } from './ApplicationFields'
+import { ApplicationFields } from './ApplicationFields'
+import { APPLIED_STATUSES } from '../lib/application'
 import { CompanyAvatar } from './CompanyAvatar'
 import { DraftEmailButton } from './DraftEmail'
 import { StatusSelect } from './StatusControl'
@@ -25,7 +26,7 @@ interface Props {
   onNext?: () => void
 }
 
-const isApplication = (job: Job) => (APPLIED_STATUSES as readonly string[]).includes(job.status)
+const isApplication = (job: Job) => APPLIED_STATUSES.includes(job.status)
 
 /** True when a key press is typing into a field rather than a shortcut. */
 const isTyping = (target: EventTarget | null) =>
