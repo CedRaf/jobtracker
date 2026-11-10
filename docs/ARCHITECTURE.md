@@ -155,14 +155,14 @@ The rules come from settings (section 4.5). How matching works is fixed in code:
   - **Spaces and hyphens are interchangeable or optional:** "help desk" also matches "help-desk" and "helpdesk".
   - **`/` may have spaces around it.**
   - **Longest phrases first,** so the reported match is the most specific.
-- **Stage 1, title only** (`title_drop_reason`): the first enabled title rule with a match drops the job, with the reason `"<rule name> (<matched text>)"`. This runs before fetching details, which saves requests.
+- **Stage 1, title only** (`title_drop_reason`): the first enabled title rule with a match drops the job, with the reason `"<rule name> (<matched text>)"`. A rule's optional "unless" words keep the job when the title also has one of them (e.g. the support rule skips titles with "developer"; the non-dev rule skips "point of sale"). This runs before fetching details, which saves requests.
 - **Location** (`location_drop_reason`): hybrid or on-site jobs outside Cebu are dropped; remote jobs are fine anywhere. The home city is fixed in code, because LinkedIn needs a location ID.
 - **Stage 2, description** (`evaluate`):
-  - Night shift, US/foreign hours and language requirements: each is *drop* or *off* (patterns are in code and honour negation like "no night shift").
+  - Night shift, US/foreign hours and language requirements: each is *drop* or *off* (patterns are in code and honour negation like "no night shift"). Foreign hours also ignore "overlap with US business hours", which asks for a few shared hours rather than a US shift.
   - Years of experience are parsed from text such as "3+ years", "minimum of five (5) years" or "3-5 yrs exp": drop at N+, flag at M+.
   - Training bond: *flag* or *off*.
   - A blank work arrangement and previous employers are flagged.
-- **Skill scoring:** a job's score is the sum of the weights of your skills it mentions (core 3, secondary 2, adjacent 1). Skills can have spellings ("aliases") and "except when part of…" phrases, e.g. React excludes "react native". Jobs below `min_match_score` are dropped (in `scraper.py`), and only when the description was actually fetched.
+- **Skill scoring:** a job's score is the sum of the weights of your skills it mentions (core 3, secondary 2, adjacent 1). Skills can have spellings ("aliases") and "except when part of…" phrases, e.g. React excludes "react native". Jobs below `min_match_score` are dropped (`low_score_reason`, used by every scraper), and only when the description was actually fetched. A description under 600 characters (e.g. a LinkedIn repost's summary) is too short to score, so the job is kept with a `!short description` flag instead.
 - **Off-stack flag:** a job that mentions off-stack stacks or skills but none of your core skills.
 - **Positive signals** ("fresh grads OK", "will train", …) are fixed in code, because the dashboard's flag categories depend on them.
 - **Flags** are strings prefixed `!` (concern) or `+` (good sign). The dashboard groups them through `web/src/lib/flags.ts` `FLAG_CATEGORIES`.
