@@ -220,19 +220,21 @@ The rules come from settings (section 4.5). How matching works is fixed in code:
 
 | Table | What it holds | Key points |
 |---|---|---|
-| `jobs` | Kept listings | Primary key `(source, external_id)`. Scraper columns (title, company, location, `work_arrangements[]`, salary, `posted_at`, `match_score`, `matched_skills[]`, `missing_skills[]`, `flags[]`, `emails[]`, url, description, `repost_key`, `search_terms[]`), plus **your** columns (`status`, `skip_reason`, `notes`, `email_drafted_at`) and timestamps (`first_seen`, `status_changed_at`, `updated_at`) |
+| `jobs` | Kept listings | Primary key `(source, external_id)`. Scraper columns (title, company, location, `work_arrangements[]`, salary, `posted_at`, `match_score`, `matched_skills[]`, `missing_skills[]`, `flags[]`, `emails[]`, url, description, `repost_key`, `search_terms[]`), plus **your** columns (`status`, `skip_reason`, `notes`, `email_drafted_at`), **application tracking** (`channel`, `resume_version`, `role_type`, `work_setup`, `applied_at`, `first_response_at`; section 5.5) and timestamps (`first_seen`, `status_changed_at`, `updated_at`) |
 | `filtered_jobs` | Dropped listings | Same key; `reason` text such as `"seniority title (Senior)"` |
 | `status_history` | Every status change | Filled by a trigger on `jobs`; feeds the funnel and response-time analytics |
 | `scrape_runs` | One row per run per source | found / evaluated / kept / filtered / expired, error (null = OK), `github_run_id`, `settings_version` |
 | `scraper_settings_versions` | Append-only settings versions | The newest is current; restoring inserts an old one again. Version 1 = defaults |
+| `resume_versions` | Resume variants (`key`, `label`) | Rows, not an enum, so you add one from the drawer's resume dropdown without a migration. `unknown`, `web` and `ai` are seeded |
 | `app_users` | Who may use the dashboard | Your auth user ID; no policies, so only the SQL editor or the secret key can change it |
 | `scraper_dispatches` | Every request the scheduler sent GitHub | `slot` (unique: one run per 15-minute slot; null when started by hand), `sources[]`, GitHub's `status_code` (204 = started) or `error`. App users can read it; only the database writes it |
 
-Enums: `job_source` (`jobstreet`, `linkedin`, `himalayas`) and `job_status` (`new`, `applied`, `emailed`, `interview`, `offer`, `rejected`, `skip`).
+Enums: `job_source` (`jobstreet`, `linkedin`, `himalayas`, and `manual` for applications you log yourself), `job_status` (`new`, `applied`, `emailed`, `exam`, `interview`, `offer`, `rejected`, `skip`), `application_channel`, `role_type` and `work_setup` (each with `unknown`).
 
 ### 5.2 Security model
 - **Row-level security is on for every table.** Read policies allow only `is_app_user()`, i.e. your auth ID is in `app_users`.
-- **Column-level grants:** logged-in users may only `UPDATE` `status`, `skip_reason`, `notes` and `email_drafted_at` on `jobs`, and only `INSERT` `settings` and `note` into settings versions. Nobody but the service role can update or delete history.
+- **Column-level grants:** logged-in users may only `UPDATE` `status`, `skip_reason`, `notes`, `email_drafted_at` and the six application-tracking columns on `jobs`, and only `INSERT` `settings` and `note` into settings versions and `key`, `label` into `resume_versions`. Nobody but the service role can update or delete history.
+- **Logged applications:** app users may `INSERT` into `jobs` only with `source = 'manual'` (an RLS policy) and only a short list of columns. Scraped jobs still come from the scraper alone.
 - **The `anon` role gets nothing,** so anonymous requests return nothing.
 - **The scraper uses the secret key** (service role), which bypasses RLS and is held only in GitHub secrets.
 - **The dashboard uses the publishable key,** which is safe in the browser.
@@ -248,8 +250,17 @@ Enums: `job_source` (`jobstreet`, `linkedin`, `himalayas`) and `job_status` (`ne
 ### 5.4 Triggers
 - `jobs_before_update` sets `updated_at`, and `status_changed_at` when the status changes.
 - `jobs_log_status_change` (security definer) inserts into `status_history` on each status change.
+- `jobs_track_application` (before insert, or update of `status`) fills in what a status change tells us, never overwriting a value you set: the work setup on insert (`guess_work_setup(arrangements, location)`), `applied_at` (and, for scraped jobs, the channel: Emailed means direct message, otherwise job board) the first time a job reaches Applied or later, and `first_response_at` at the first exam/interview/offer/rejection *after* that. New straight to Rejected sets only `applied_at`, so it isn't a same-day response.
+- `jobs_log_initial_status` (security definer) records a logged application's starting stage in `status_history`, since inserts don't fire the update trigger.
 
-### 5.5 Changing the schema
+### 5.5 Application tracking (`*_application_stages.sql`, `*_application_tracking.sql`)
+- **What's stored:** how you applied (`channel`, `resume_version`, `role_type`, `work_setup`) and when (`applied_at`, `first_response_at`). Days to a response is computed from the two dates, never stored.
+- **What isn't:** the outcome. `lib/analytics.ts` `deriveOutcome()` takes the furthest stage the job ever reached (offer > interview > exam > rejected > no reply) from its history and current status, so it can't drift from the board; an interview that ended in a rejection still counts as an interview.
+- **The backfill:** dates from `status_history` (the first applied/emailed change, else the first later stage); imported jobs without history fall back to `status_changed_at` or `email_drafted_at` for Applied/Emailed and stay null otherwise. Channel from the status (Emailed: direct message; other applications: job board). Work setup from the listing. Everything else is `unknown`.
+- **Two files on purpose:** Postgres can't use an enum value in the transaction that adds it, and the second file's policy and backfill use `manual` and `exam`.
+- `jobs_response_after_applied` (a check) refuses a response dated before the application; the drawer prevents it too.
+
+### 5.6 Changing the schema
 - Add a new file in `supabase/migrations/` (never edit an applied one), run `npx supabase db push --remote`, then `npx supabase migration list --remote` to confirm.
 - Don't change tables in the Supabase dashboard; the repo and database would drift apart.
 - **Order matters:** push migrations *before* deploying dashboard code that reads new columns.
@@ -288,7 +299,8 @@ Enums: `job_source` (`jobstreet`, `linkedin`, `himalayas`) and `job_status` (`ne
 Components never call Supabase directly. Everything goes through one interface.
 
 - **`types.ts`:** the `DataApi` interface and every data type (it mirrors the SQL; keep them in sync). `DataApi` covers:
-  - jobs: list, description, update
+  - jobs: list, description, update, `logApplication` (inserts a `manual` job)
+  - resume versions: list and add
   - filtered jobs
   - scrape runs: latest, and the last N days
   - scheduler dispatches: the latest few
@@ -300,13 +312,13 @@ Components never call Supabase directly. Everything goes through one interface.
   - Lists page through PostgREST's 1,000-row limit.
   - The job list leaves out `description`, which is fetched per job when the drawer opens.
 - **`demoApi.ts`:**
-  - Uses made-up data from **`demoData.ts`**: a month of jobs, status history, and two weeks of runs including one failed and one interrupted, generated with a seeded random generator so it's the same every load.
+  - Uses made-up data from **`demoData.ts`**: a month of jobs, 64 past applications with their attributes (some logged by hand; referrals and a resume matching the role get more responses), status history, and two weeks of runs including one failed and one interrupted, generated with a seeded random generator so it's the same every load.
   - Keeps everything in memory, so edits reset on reload.
-  - Records status history the way the database trigger does.
+  - Records status history and fills in the application dates the way the database triggers do.
   - Shows **one generically named site**.
 - **`api.ts`:** picks the implementation. Demo when `VITE_DEMO=true` or the mode is `demo` (`npm run dev:demo` / `build:demo`), otherwise Supabase from the `VITE_` variables. It also decides whether the cache is saved (never in demo).
 - **`hooks.ts`:** the TanStack Query hooks every component uses.
-  - `useJobs`, `useJobDescription`, `useUpdateJob` (optimistic, with rollback, and invalidates status history), `useFilteredJobs`, `useLatestScrapeRuns`, `useScrapeRuns`, `useDispatches`, `useStatusHistory`, `useSettingsVersions`, `useSaveSettings` (puts the new version into the cache at once).
+  - `useJobs`, `useJobDescription`, `useUpdateJob` (optimistic, with rollback, and invalidates status history), `useLogApplication`, `useResumeVersions`, `useAddResumeVersion`, `useFilteredJobs`, `useLatestScrapeRuns`, `useScrapeRuns`, `useDispatches`, `useStatusHistory`, `useSettingsVersions`, `useSaveSettings` (puts the new version into the cache at once).
   - `useSources` and `useSourceLabel`: with **one** site, the UI leaves site names out entirely ("26 of 49 jobs", "Last run").
 - **`queryCache.ts`:** the query client and its persistence.
   - 60 s stale time, refetch on window focus, 1 retry.
@@ -319,19 +331,22 @@ Components never call Supabase directly. Everything goes through one interface.
 - **Jobs (`JobsPage.tsx`):**
   - Source tabs, shown only with 2+ sites.
   - A freshness line (last scrape, last visit).
-  - Summary cards that double as filters (To review, New since last visit, Applied/emailed, Interviewing, Offers).
+  - Summary cards that double as filters (To review, New since last visit, Applied/emailed, Exam / interview, Offers).
   - The filter bar (folds away on phones).
   - **Ordering:** "Entry-level first" by default, newest first within each group.
   - The table: rows show only *concerns* as coloured flags; status changes inline with Undo.
   - **Phones:** stacked rows with quick triage buttons.
   - Opens `JobDrawer` with previous/next and `j`/`k`.
 - **Board (`BoardPage.tsx`):**
-  - A dnd-kit kanban: New → Applied → Emailed → Interview → Offer, plus Rejected/Skip when switched on.
+  - A dnd-kit kanban: New → Applied → Emailed → Exam → Interview → Offer, plus Rejected/Skip when switched on.
+  - **Log application** opens a short form for referrals, direct messages and company sites no scraper found. They're stored as `manual` jobs and appear on the board (with a "Logged by you" filter when there are several sites) and in the analytics, but not on the Jobs page, which is for reviewing scraped listings.
   - Dropping a card on Skip asks for an optional reason.
   - **Input:** touch uses press-and-hold; on the keyboard, Enter opens a card and Space picks it up.
 - **Analytics (`AnalyticsPage.tsx`):**
   - **Scraper health:** last run per site (marked when switched off), the next scheduled run, success rate over 14 days, a stale warning after 24 hours for scheduled sites only, and an error when the scheduler couldn't start the last run (`lib/schedule.ts` `dispatchProblem`); runs are OK / Failed / Running / Interrupted (unfinished after an hour).
   - Headline tiles.
+  - **What gets responses:** per channel, resume, role type or work setup (a switcher): applications, response rate (any outcome but no reply), interview rate and median days to a reply, each with its sample size, plus a total row. Groups under 10 applications (`MIN_SAMPLE`) are greyed and tagged "Not enough data". Applications count in the period by `applied_at`.
+  - **After an exam or interview:** of the applications that reached each, how many went further, were rejected, are still waiting or ended otherwise.
   - Charts: new jobs per day, the funnel, filter reasons, your skills in demand, other stacks.
   - Every chart can also show its data as a table. Period: 30 / 90 / 365 days.
   - Analytics are **computed in the browser** (`lib/analytics.ts`); one person's data is small, so no SQL views are needed.
@@ -351,7 +366,7 @@ Components never call Supabase directly. Everything goes through one interface.
 ### 6.5 Shared components (`src/components/`)
 - **`AppLayout`:** header navigation on desktop, a **bottom tab bar on phones**, the theme toggle and sign-out.
 - **`AuthGate`:** a spinner while the session loads, then the login form, or the "add this user ID to `app_users`" screen (with the SQL to copy), or the app.
-- **`JobDrawer`:** job details, the edit form (status, skip reason, notes; leaving with unsaved changes asks first), the Apply section (emails, Draft in Gmail, application form), skills, flags and the description.
+- **`JobDrawer`:** job details, the edit form (status, skip reason, notes; leaving with unsaved changes asks first), the **Application** section once you've applied (`ApplicationFields`: channel, resume, role type, work setup and the two dates, each saved as soon as it changes, plus the derived outcome; new resume versions are added from the dropdown), the Apply section (emails, Draft in Gmail, application form), skills, flags and the description.
 - **`StatusControl`:** coloured status dots and select, and the table/phone status cell (Skip asks for a reason; quick buttons on phones). **`useChangeStatus`** saves the change and shows a message with Undo.
 - **`DraftEmail`:** "Draft in Gmail" opens Gmail's compose page with your template filled in (`{title}`, `{company}`, `{at_company}`), records `email_drafted_at`, and moves New/Applied to Emailed. The template is kept in **this browser's localStorage** (`lib/emailTemplate.ts`), so personal wording stays out of the repo.
 - **`charts.tsx`:** `ChartCard` (chart / table toggle), `DailyJobsChart` (stacked by site, legend only with 2+ sites) and `BarList`. Colours come from `lib/chartColors.ts`, a validated palette.
@@ -359,7 +374,8 @@ Components never call Supabase directly. Everything goes through one interface.
 
 ### 6.6 Pure logic (`src/lib/`): unit-tested and React-free where possible
 - `filters.ts`: the job filters, filter choices and the "new since last visit" test.
-- `analytics.ts`: jobs per day, skill demand, the funnel and response rate, median days to a response, run state, stale sources and success rate.
+- `analytics.ts`: jobs per day, skill demand, the funnel and response rate, days to a response, run state, stale sources and success rate; plus `deriveOutcome`, `applications`, `breakdown` (per dimension) and `dropOff` for application tracking.
+- `application.ts`: labels for the application fields, `APPLIED_STATUSES` and `resumeKey()` (the database's rule for new resume version keys).
 - `entryLevel.ts`: a **port of the scraper's `phrase_pattern`**, the Entry-level marker (title words, or description signals) and its sort rank, plus `useEntryLevel()` (current settings, or the defaults).
 - `scraperSettings.ts`: normalising settings, `settingsProblems()` (mirrors `settings.py`, including the schedule rules) and `changedSections()` for the history.
 - `schedule.ts`: `nextStart()` (the next scheduled run, Manila time), `scheduledSources()`, `dispatchProblem()` (why the scheduler's last request didn't start a run) and `useSchedule()`.
@@ -421,8 +437,8 @@ No real secret has ever been committed (history checked 2026-10-26). The repo is
 
 | Suite | Where | Count (2026-11-06) | Run with |
 |---|---|---|---|
-| Scraper | `scraper/tests/` | **220** test cases | `cd scraper && ../.venv/Scripts/python.exe -m pytest` |
-| Dashboard | `web/src/**/*.test.ts(x)` | **142** test cases in 17 files | `cd web && npm test` |
+| Scraper and migrations | `scraper/tests/` | **257** test cases (37 need Postgres) | `cd scraper && ../.venv/Scripts/python.exe -m pytest` |
+| Dashboard | `web/src/**/*.test.ts(x)` | **172** test cases in 18 files | `cd web && npm test` |
 
 Counts are test **cases**; table-driven tests count each input. CI runs both on every push.
 
@@ -433,6 +449,7 @@ Counts are test **cases**; table-driven tests count each input. CI runs both on 
 - **`test_sinks.py`:** row conversion, the REST client (headers, batching, retries), outputs, delivery and the run log. All against fake HTTP, with no network.
 - **`test_linkedin.py`:** 429 handling, `Retry-After`, stopping early, the time budget and page limits.
 - **`test_duplicates.py`:** the cross-site key (same jobs formatted differently must match; different roles must not), the lookup and its fallbacks, and duplicates being filtered before evaluation in a run.
+- **`test_migrations.py`:** applies every migration to a real Postgres (with stand-ins for Supabase's `auth` schema, roles, `pg_cron`, `pg_net` and Vault), inserting existing jobs before the application-tracking migrations so the backfill runs on realistic rows. Covers the backfill, the triggers, logged applications, resume versions, the dashboard's TypeScript unions matching the enums, and what stays locked (scraper columns, history, outsiders, `anon`). Runs only when `TEST_DATABASE_URL` is set: CI starts a `postgres` service; locally, any Postgres 15+ where you may create databases (each run creates and drops its own).
 - **`test_himalayas.py`:** the client (query, 429, bad responses), field mapping, the country/timezone eligibility rule, paging, stopping early, expired jobs and duplicates.
 - **Dashboard logic** (`lib/*.test.ts`): filters, analytics, entry-level matching, rule validation, flags, reasons, rule links, the email template, last visit, and (in `data/`) the query cache and auth clearing.
 - **Dashboard pages** (`pages/*.test.tsx`): render real pages on demo data and click through them. Multi-site behaviour uses `test/twoSiteApi.ts`, which relabels some demo jobs as a second site.
@@ -473,6 +490,8 @@ Counts are test **cases**; table-driven tests count each input. CI runs both on 
 | Change run times or switch a site off | Dashboard → **Rules → Schedule** |
 | Add a job source | A client module + `collect()`/`evaluate_jobs()`, a workflow step (plus seen-ID cache steps), a migration adding the enum value, `JobSource` in `types.ts`, `sources`/`sourceLabels` in `supabaseApi.ts` (and the labels in `demoApi.ts`/`twoSiteApi.ts`), `DayCount` in `lib/analytics.ts`, and a validated colour in `lib/chartColors.ts` (Himalayas is the example) |
 | Add a database column | A new migration → `db push` → `web/src/data/types.ts` and the `*_COLUMNS` lists in `supabaseApi.ts` → demo data |
+| Add a resume version | The resume dropdown in a job's drawer → Add (no code change) |
+| Add a channel, role type or work setup | A migration (`alter type … add value`) → the union in `types.ts` (`test_migrations.py` checks they match) → the labels in `lib/application.ts` |
 | Show the match score again | `web/src/lib/settings.ts` → `SHOW_MATCH_SCORE = true` |
 | Change colours or fonts | `web/src/lib/theme.ts` (UI) and `lib/chartColors.ts` (charts) |
 | Run the app locally | `cd web && npm run dev` (real data, needs `.env.local`) or `npm run dev:demo` |
