@@ -3,11 +3,14 @@ Filtering, flagging and resume skill-matching rules.
 
 What the rules look for comes from the scraper settings (settings.py:
 editable in the dashboard, defaults in default_settings.json):
-- DROP by title: each enabled title rule (seniority, internship, ...).
-- DROP by description: night shift, US/foreign hours, language requirements
-  (each can be switched off), and N+ years of experience.
-- DROP hybrid/on-site outside Cebu (location_drop_reason), and (in
-  scraper.py) a skill-match score below "min_match_score".
+- DROP by title: each enabled title rule (seniority, internship, ...), unless
+  the title also has one of that rule's "unless" words.
+- DROP by description: night shift, US/foreign hours (not just "overlap with
+  US hours"), language requirements (each can be switched off), and N+ years
+  of experience.
+- DROP hybrid/on-site outside Cebu (location_drop_reason), and a skill-match
+  score below "min_match_score" (low_score_reason: not judged, but flagged,
+  when the description is too short to score).
 - FLAG: 3-4 years experience, off-stack roles, training bonds, blank work
   arrangement, previous employers, and positive signals.
 LinkedIn jobs get their work arrangement from guess_work_arrangements().
@@ -34,6 +37,8 @@ LANGUAGE_REQUIRED = re.compile(
     r"[^.\n]{0,25}\b(mandarin|chinese|japanese|korean|cantonese|german|french|spanish|"
     r"vietnamese|thai)\b|\b(?:jlpt|hsk|topik)\b", I)
 NEGATION = re.compile(r"\b(no|not|without|non|never)\b[\s-]*$", I)
+# "overlap with U.S. business hours" asks for a few shared hours, not a US shift.
+OVERLAP = re.compile(r"\boverlap(?:s|ping)?\b[^.\n]{0,30}$", I)
 
 US_HOURS = re.compile(
     r"\b(us|u\.s\.|usa|american|uk)[\s-]*(?:shift|hours|time ?zone|business hours)\b|"
@@ -101,7 +106,7 @@ class Rules:
     def __init__(self, settings):
         self.settings = settings
         self.title_rules = [
-            (rule["label"], phrase_pattern(rule["words"]))
+            (rule["label"], phrase_pattern(rule["words"]), phrase_pattern(rule["unless"]))
             for rule in settings["title_rules"] if rule["enabled"] and rule["words"]
         ]
         self.skills = [
@@ -164,6 +169,15 @@ def _unnegated(pattern, text):
     return False
 
 
+def _foreign_hours(text):
+    """The first US/UK hours mention that isn't negated or only asking for overlap, or None."""
+    for m in US_HOURS.finditer(text):
+        before = text[max(0, m.start() - 40):m.start()]
+        if not NEGATION.search(before[-20:]) and not OVERLAP.search(before):
+            return m
+    return None
+
+
 def required_years(text):
     """Highest 'minimum years of experience' mentioned, or None."""
     years = []
@@ -198,9 +212,9 @@ def guess_work_arrangements(text):
 def title_drop_reason(job):
     """Checks that only need the title. Returns a reason string or None."""
     title = job["title"] or ""
-    for label, rx in active().title_rules:
+    for label, rx, unless in active().title_rules:
         m = rx.search(title)
-        if m:
+        if m and not (unless and unless.search(title)):
             return f"{label} ({m.group(0)})"
     return None
 
@@ -233,8 +247,10 @@ def evaluate(job, description):
     if years is not None and flag_at is not None and years >= flag_at:
         flags.append(f"!{years}+ yrs exp")
 
-    if rules.checks["foreign_hours"] == "drop" and _unnegated(US_HOURS, text):
-        return f"US/foreign hours ({US_HOURS.search(text).group(0)})", {}
+    if rules.checks["foreign_hours"] == "drop":
+        m = _foreign_hours(text)
+        if m:
+            return f"US/foreign hours ({m.group(0)})", {}
     if rules.checks["language_requirement"] == "drop":
         m = LANGUAGE_REQUIRED.search(text)
         if m:
@@ -270,6 +286,25 @@ def evaluate(job, description):
         "missing_skills": ", ".join(missing),
         "flags": "; ".join(flags),
     }
+
+
+# Some listings (e.g. LinkedIn reposts) carry only a short summary. A skill
+# score from that says nothing, so the job is kept and flagged instead.
+MIN_DESCRIPTION_CHARS = 600
+
+
+def low_score_reason(extra, description, min_score):
+    """
+    The drop reason when the skill-match score is below min_score, or None.
+    A description too short to judge isn't scored: the job is kept with a
+    "!short description" flag (added to extra["flags"]).
+    """
+    if extra["match_score"] >= min_score:
+        return None
+    if len(description) < MIN_DESCRIPTION_CHARS:
+        extra["flags"] = "; ".join(filter(None, [extra["flags"], "!short description"]))
+        return None
+    return f"low skill match (score {extra['match_score']})"
 
 
 def extract_emails(description, raw_html=""):

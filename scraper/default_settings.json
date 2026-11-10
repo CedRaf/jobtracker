@@ -119,6 +119,10 @@
         "virtual assistant",
         "call center",
         "csr"
+      ],
+      "unless": [
+        "point of sale",
+        "point of sales"
       ]
     },
     {
@@ -133,6 +137,11 @@
         "l2/l3",
         "l2 support",
         "l3 support"
+      ],
+      "unless": [
+        "developer",
+        "programmer",
+        "app dev"
       ]
     },
     {

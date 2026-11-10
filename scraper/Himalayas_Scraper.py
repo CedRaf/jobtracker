@@ -182,8 +182,8 @@ def evaluate_jobs(session, cfg, candidates, seen):
         raw_html = job["description_html"]
         description = rules.html_to_text(raw_html)
         reason, extra = rules.evaluate(job, description)
-        if not reason and extra["match_score"] < min_score:
-            reason = f"low skill match (score {extra['match_score']})"
+        if not reason:
+            reason = rules.low_score_reason(extra, description, min_score)
         if reason:
             filtered.append(filtered_record(job, reason))
             continue

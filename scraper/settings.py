@@ -177,6 +177,8 @@ def _title_rules(raw):
             "label": _text(rule.get("label"), f"{where}.label"),
             "enabled": enabled,
             "words": _words(rule.get("words", []), f"{where}.words", allow_empty=not enabled),
+            # Keep the job when its title also has one of these (e.g. "developer").
+            "unless": _words(rule.get("unless", []), f"{where}.unless", allow_empty=True),
         })
     return _unique(rules, "label", "title_rules")
 
