@@ -233,45 +233,271 @@ def test_work_setup_is_guessed_from_the_listing(db, external_id, setup):
     assert job(db, external_id)["work_setup"] == setup
 
 
-# ---- triggers -----------------------------------------------------------------------
+# ---- the status machine ---------------------------------------------------------------
+
+
+def move(conn, external_id, to, source="jobstreet", **params):
+    """change_job_status(); returns (history_id, job as a dict)."""
+    names = "".join(f", p_{k} => %s" for k in params)
+    result = conn.execute(
+        f"select public.change_job_status(%s, %s, %s{names})",
+        [source, external_id, to, *params.values()]).fetchone()[0]
+    return result["history_id"], result["job"]
+
+
+def revert(conn, history_id):
+    return conn.execute("select public.revert_status_change(%s)", [history_id]).fetchone()[0]["job"]
+
+
+def correct(conn, external_id, to, source="jobstreet", **params):
+    names = "".join(f", p_{k} => %s" for k in params)
+    result = conn.execute(
+        f"select public.correct_job_status(%s, %s, %s{names})",
+        [source, external_id, to, *params.values()]).fetchone()[0]
+    return result["history_id"], result["job"]
+
+
+def history(conn, external_id):
+    return conn.execute(
+        """select from_status::text, to_status::text, kind, reverted_at is not null
+           from public.status_history where job_external_id = %s order by id""",
+        [external_id]).fetchall()
 
 
 def test_moving_a_job_along_the_board_fills_in_the_dates(db):
     with session(db, "authenticated", APP_USER) as conn:
-        conn.execute("update public.jobs set status = 'applied' where external_id = 'new'")
+        move(conn, "new", "applied")
         row = job(conn, "new")
         now = conn.execute("select now()").fetchone()[0]
         assert row["applied_at"] == now and row["channel"] == "job_board"
         assert row["first_response_at"] is None
 
-        conn.execute("update public.jobs set status = 'exam' where external_id = 'new'")
+        move(conn, "new", "exam")
         assert job(conn, "new")["first_response_at"] == now
-        statuses = conn.execute(
-            "select to_status::text from public.status_history where job_external_id = 'new' order by id"
-        ).fetchall()
-        assert statuses == [("applied",), ("exam",)]
+        assert history(conn, "new") == [
+            ("new", "applied", "change", False), ("applied", "exam", "change", False)]
 
 
-def test_drafting_an_email_counts_as_a_direct_message(db):
+def test_direct_status_updates_are_refused(db):
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        with session(db, "authenticated", APP_USER) as conn:
+            conn.execute("update public.jobs set status = 'applied' where external_id = 'new'")
+
+
+def test_even_the_service_role_cannot_update_a_status_directly(db):
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match="change_job_status"):
+        with session(db, "service_role") as conn:
+            conn.execute("update public.jobs set status = 'applied' where external_id = 'new'")
+
+
+@pytest.mark.parametrize("external_id, to", [
+    ("new", "rejected"),       # plan 1.3: Rejected only follows an application
+    ("new", "interview"),
+    ("new", "emailed"),        # nothing moves into the legacy Emailed status
+    ("new", "expired"),        # only expire_stale_jobs() does that
+    ("applied", "new"),        # plan 1.4: mistakes are undone, not moved back
+    ("imported-rejected", "interview"),  # Rejected is final
+])
+def test_moves_outside_the_table_are_refused(db, external_id, to):
+    with pytest.raises(psycopg.errors.CheckViolation, match="can't move"):
+        with session(db, "authenticated", APP_USER) as conn:
+            move(conn, external_id, to)
+
+
+def test_a_stale_screen_cannot_move_a_job(db):
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match="reload"):
+        with session(db, "authenticated", APP_USER) as conn:
+            move(conn, "applied", "interview", expected_from="new")
+
+
+def test_the_channel_and_date_you_give_are_kept(db):
     with session(db, "authenticated", APP_USER) as conn:
-        conn.execute("update public.jobs set status = 'emailed' where external_id = 'new'")
-        assert job(conn, "new")["channel"] == "direct_message"
-
-
-def test_the_trigger_never_overwrites_what_you_set(db):
-    with session(db, "authenticated", APP_USER) as conn:
-        conn.execute("""update public.jobs set channel = 'referral', applied_at = %s
-                        where external_id = 'new'""", [at(3)])
-        conn.execute("update public.jobs set status = 'applied' where external_id = 'new'")
+        move(conn, "new", "applied", channel="direct_message", applied_at=at(3))
         row = job(conn, "new")
-        assert row["channel"] == "referral" and row["applied_at"] == at(3)
+        assert row["channel"] == "direct_message" and row["applied_at"] == at(3)
 
 
-def test_new_straight_to_rejected_is_not_a_same_day_response(db):
+def test_a_skip_and_its_reason_are_saved_together_and_cleared_together(db):
     with session(db, "authenticated", APP_USER) as conn:
-        conn.execute("update public.jobs set status = 'rejected' where external_id = 'new'")
-        row = job(conn, "new")
-        assert row["applied_at"] is not None and row["first_response_at"] is None
+        move(conn, "new", "skip", skip_reason="  wants 3 years of Java ")
+        assert job(conn, "new")["skip_reason"] == "wants 3 years of Java"
+        move(conn, "new", "new")
+        assert job(conn, "new")["skip_reason"] is None
+
+
+def test_withdrawing_keeps_the_application(db):
+    with session(db, "authenticated", APP_USER) as conn:
+        move(conn, "applied", "withdrawn")
+        row = job(conn, "applied")
+        assert row["status"] == "withdrawn" and row["applied_at"] == at(1)
+
+
+def test_legacy_emailed_jobs_move_on_like_applied_ones(db):
+    with session(db, "postgres") as conn:
+        conn.execute("select set_config('jobtracker.status_change', 'on', true)")
+        conn.execute("update public.jobs set status = 'emailed' where external_id = 'applied'")
+        conn.execute("select set_config('jobtracker.status_change', '', true)")
+        conn.execute("select set_config('request.jwt.claim.sub', %s, true)", [APP_USER])
+        move(conn, "applied", "interview")
+        assert job(conn, "applied")["status"] == "interview"
+
+
+# ---- undo ---------------------------------------------------------------------------
+
+
+def test_undo_restores_every_field_and_drops_out_of_the_analytics(db):
+    with session(db, "authenticated", APP_USER) as conn:
+        before = job(conn, "applied")
+        history_id, _ = move(conn, "applied", "offer")
+        assert job(conn, "applied")["first_response_at"] is not None
+        restored = revert(conn, history_id)
+        assert restored["status"] == "applied"
+        row = job(conn, "applied")
+        fields = ("status", "applied_at", "first_response_at", "channel", "skip_reason", "status_changed_at")
+        for field in fields:
+            assert row[field] == before[field], field
+        assert history(conn, "applied")[-1] == ("applied", "offer", "change", True)
+
+
+def test_undo_brings_back_the_skip_reason_it_replaced(db):
+    with session(db, "authenticated", APP_USER) as conn:
+        move(conn, "new", "skip", skip_reason="bond")
+        history_id, _ = move(conn, "new", "new")
+        revert(conn, history_id)
+        assert job(conn, "new")["skip_reason"] == "bond"
+
+
+def test_only_the_latest_change_can_be_undone(db):
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match="latest"):
+        with session(db, "authenticated", APP_USER) as conn:
+            first, _ = move(conn, "new", "applied")
+            move(conn, "new", "interview")
+            revert(conn, first)
+
+
+def test_undo_is_refused_after_the_job_was_edited(db):
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match="edited"):
+        with session(db, "authenticated", APP_USER) as conn:
+            history_id, _ = move(conn, "new", "applied")
+            conn.execute("update public.jobs set applied_at = %s where external_id = 'new'", [at(2)])
+            revert(conn, history_id)
+
+
+def test_old_changes_without_a_snapshot_cannot_be_undone(db):
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match="Correct status"):
+        with session(db, "authenticated", APP_USER) as conn:
+            old = conn.execute("""select max(id) from public.status_history
+                                  where job_external_id = 'emailed'""").fetchone()[0]
+            revert(conn, old)
+
+
+# ---- corrections --------------------------------------------------------------------
+
+
+def test_a_correction_replaces_the_status_it_corrects(db):
+    with session(db, "authenticated", APP_USER) as conn:
+        move(conn, "new", "applied")
+        move(conn, "new", "offer")  # meant Interview
+        correct(conn, "new", "interview")
+        assert history(conn, "new") == [
+            ("new", "applied", "change", False),
+            ("applied", "offer", "change", True),
+            ("offer", "interview", "correction", False),
+        ]
+        assert job(conn, "new")["status"] == "interview"
+
+
+def test_correcting_to_never_applied_clears_the_application(db):
+    with session(db, "authenticated", APP_USER) as conn:
+        correct(conn, "straight-to-interview", "skip", skip_reason="misclick")
+        row = job(conn, "straight-to-interview")
+        assert row["applied_at"] is None and row["first_response_at"] is None
+        assert row["skip_reason"] == "misclick"
+
+
+def test_undoing_a_correction_brings_back_what_it_replaced(db):
+    with session(db, "authenticated", APP_USER) as conn:
+        move(conn, "new", "applied")
+        move(conn, "new", "offer")
+        history_id, _ = correct(conn, "new", "interview")
+        revert(conn, history_id)
+        assert job(conn, "new")["status"] == "offer"
+        assert [r[3] for r in history(conn, "new")] == [False, False, True]
+
+
+def test_nothing_can_be_corrected_into_emailed(db):
+    with pytest.raises(psycopg.errors.CheckViolation):
+        with session(db, "authenticated", APP_USER) as conn:
+            correct(conn, "new", "emailed")
+
+
+# ---- expiry -------------------------------------------------------------------------
+
+
+def test_jobs_left_in_new_for_15_days_expire(db):
+    with session(db, "postgres") as conn:
+        conn.execute("""update public.jobs set first_seen = now() - interval '16 days'
+                        where external_id = 'new'""")
+        assert conn.execute("select public.expire_stale_jobs()").fetchone()[0] == 1
+        assert job(conn, "new")["status"] == "expired"
+        assert history(conn, "new") == [("new", "expired", "expiry", False)]
+        # You can still apply to (or skip) an expired job.
+        conn.execute("select set_config('request.jwt.claim.sub', %s, true)", [APP_USER])
+        move(conn, "new", "applied")
+
+
+def test_recent_jobs_do_not_expire(db):
+    with session(db, "postgres") as conn:
+        conn.execute("""update public.jobs set first_seen = now() - interval '14 days'
+                        where external_id = 'new'""")
+        assert conn.execute("select public.expire_stale_jobs()").fetchone()[0] == 0
+
+
+def test_dashboard_users_cannot_expire_jobs(db):
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        with session(db, "authenticated", APP_USER) as conn:
+            conn.execute("select public.expire_stale_jobs()")
+
+
+# ---- guards on the fields a status depends on ---------------------------------------
+
+
+def test_the_day_you_applied_cannot_be_cleared(db):
+    with pytest.raises(psycopg.errors.CheckViolation, match="applied"):
+        with session(db, "authenticated", APP_USER) as conn:
+            conn.execute("update public.jobs set applied_at = null where external_id = 'applied'")
+
+
+def test_the_first_response_cannot_be_cleared_once_you_heard_back(db):
+    with pytest.raises(psycopg.errors.CheckViolation, match="first response"):
+        with session(db, "authenticated", APP_USER) as conn:
+            conn.execute("update public.jobs set first_response_at = null where external_id = 'emailed'")
+
+
+def test_only_a_skipped_job_gets_a_skip_reason(db):
+    with pytest.raises(psycopg.errors.CheckViolation, match="skip reason"):
+        with session(db, "authenticated", APP_USER) as conn:
+            conn.execute("update public.jobs set skip_reason = 'x' where external_id = 'applied'")
+
+
+def test_existing_rows_that_break_the_rules_can_still_be_edited(db):
+    # Imported Rejected job: no applied_at. Left alone, and notes still save.
+    with session(db, "authenticated", APP_USER) as conn:
+        conn.execute("update public.jobs set notes = 'old' where external_id = 'imported-rejected'")
+        assert job(conn, "imported-rejected")["notes"] == "old"
+
+
+def test_transitions_match_the_dashboard(db):
+    source = (ROOT / "web" / "src" / "lib" / "transitions.ts").read_text(encoding="utf-8")
+    body = re.search(r"export const TRANSITIONS[^=]*=\s*\{(.*?)\n\}", source, re.S).group(1)
+    ts = {(frm, to) for frm, tos in re.findall(r"(\w+): \[([^\]]*)\]", body)
+          for to in re.findall(r"'(\w+)'", tos)}
+    sql = set(db.execute("""select from_status::text, to_status::text from public.job_status_transitions
+                            where not system_only""").fetchall())
+    assert ts == sql
+
+
+# ---- inserts ------------------------------------------------------------------------
 
 
 def test_scraped_jobs_get_a_work_setup_on_insert(db):

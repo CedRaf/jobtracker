@@ -14,7 +14,10 @@ Jobs already in Supabase (e.g. found by the scraper since dual-write began)
 are left as they are, so statuses and notes you set in the dashboard win.
 Add --overwrite to replace them with the sheet's values instead (descriptions,
 which the sheet doesn't have, are kept either way). Filtered jobs that
-already exist are always left alone.
+already exist are always left alone. A job's status only changes through
+change_job_status(), so --overwrite fails for a job whose status differs from
+the sheet's: move it on the dashboard instead.
+The sheet's Emailed becomes Applied with the direct message channel.
 Credentials: SUPABASE_URL / SUPABASE_SECRET_KEY or secrets.json, as for the scrapers.
 """
 
@@ -26,7 +29,8 @@ from datetime import datetime
 import sinks
 from scraper import load_secrets, repost_key
 
-STATUSES = {"new", "applied", "emailed", "interview", "offer", "rejected", "skip"}
+STATUSES = {"new", "applied", "interview", "offer", "rejected", "skip"}
+APPLIED = {"applied", "interview", "offer", "rejected"}
 SHEET_DATE_FORMATS = ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%m/%d/%Y",
                       "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d")
 
@@ -52,8 +56,12 @@ def sheet_job_row(row, source):
     # Not in the sheet: leave whatever Supabase already has.
     del db_row["description"]
     status = (row.get("status") or "").strip().lower()
+    # Emailed is no longer a status: it's Applied, with the direct message channel.
+    emailed = status == "emailed"
+    status = "applied" if emailed else status if status in STATUSES else "new"
     db_row.update({
-        "status": status if status in STATUSES else "new",
+        "status": status,
+        "channel": "direct_message" if emailed else "job_board" if status in APPLIED else "unknown",
         "notes": (row.get("notes") or "").strip() or None,
         "email_drafted_at": parse_sheet_date(row.get("draft_created")),
     })
