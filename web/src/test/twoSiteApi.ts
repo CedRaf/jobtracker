@@ -26,5 +26,14 @@ export function createTwoSiteApi(): DataApi {
     listJobs: async () => (await api.listJobs()).map(relabel),
     getDescription: (key) => api.getDescription(stored(key)),
     updateJob: async (key, patch) => relabel(await api.updateJob(stored(key), patch)),
+    changeStatus: async (key, from, to, options) => {
+      const { job, historyId } = await api.changeStatus(stored(key), from, to, options)
+      return { job: relabel(job), historyId }
+    },
+    correctStatus: async (key, from, to, options) => {
+      const { job, historyId } = await api.correctStatus(stored(key), from, to, options)
+      return { job: relabel(job), historyId }
+    },
+    revertStatus: async (historyId) => relabel(await api.revertStatus(historyId)),
   }
 }

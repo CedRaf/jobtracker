@@ -6,7 +6,8 @@ import {
 import { Alert, Button, Flex, Input, Modal, Segmented, Skeleton, Switch, theme, Typography } from 'antd'
 import type { Job, JobOrigin, JobStatus } from '../data/types'
 import { jobKeyString } from '../data/types'
-import { useJobs, useSourceLabel, useSources, useUpdateJob } from '../data/hooks'
+import { useJobs, useSourceLabel, useSources } from '../data/hooks'
+import { canMove } from '../lib/transitions'
 import { CompanyAvatar } from '../components/CompanyAvatar'
 import { JobDrawer } from '../components/JobDrawer'
 import { LogApplicationButton } from '../components/LogApplication'
@@ -17,8 +18,8 @@ import { STATUS_META } from '../lib/status'
 import { useEntryLevel, type EntryLevel } from '../lib/entryLevel'
 import { EntryLevelTag } from '../components/Tags'
 
-const OPEN_COLUMNS: JobStatus[] = ['new', 'applied', 'emailed', 'exam', 'interview', 'offer']
-const CLOSED_COLUMNS: JobStatus[] = ['rejected', 'skip']
+const OPEN_COLUMNS: JobStatus[] = ['new', 'applied', 'exam', 'interview', 'offer']
+const CLOSED_COLUMNS: JobStatus[] = ['rejected', 'withdrawn', 'skip', 'expired']
 
 type SourceFilter = JobOrigin | 'all'
 
@@ -29,7 +30,6 @@ const byRecent = (a: Job, b: Job) =>
 export function BoardPage() {
   const jobs = useJobs()
   const change = useChangeStatus()
-  const update = useUpdateJob()
   const sources = useSources()
   const site = useSourceLabel()
   const [source, setSource] = useState<SourceFilter>('all')
@@ -41,7 +41,11 @@ export function BoardPage() {
   const entryLevelOf = useEntryLevel()
 
   const all = useMemo(() => jobs.data ?? [], [jobs.data])
-  const columns = showClosed ? [...OPEN_COLUMNS, ...CLOSED_COLUMNS] : OPEN_COLUMNS
+  // Emailed is legacy: its column only shows while jobs still have it.
+  const open = all.some((j) => j.status === 'emailed')
+    ? [...OPEN_COLUMNS.slice(0, 2), 'emailed' as const, ...OPEN_COLUMNS.slice(2)]
+    : OPEN_COLUMNS
+  const columns = showClosed ? [...open, ...CLOSED_COLUMNS] : open
   const byStatus = useMemo(() => {
     const groups = new Map<JobStatus, Job[]>()
     for (const job of all) {
@@ -68,19 +72,18 @@ export function BoardPage() {
     setDragging(null)
     const job = all.find((j) => jobKeyString(j) === active.id)
     const status = over?.id as JobStatus | undefined
-    if (!job || !status || status === job.status) return
-    change(job, status)
+    if (!job || !status || !canMove(job.status, status)) return
+    // A skip is saved together with its reason, so ask first.
     if (status === 'skip') {
-      setSkipReason(job.skip_reason ?? '')
+      setSkipReason('')
       setSkipping(job)
+      return
     }
+    change(job, status)
   }
 
-  const saveSkipReason = () => {
-    const text = skipReason.trim()
-    if (skipping && text !== (skipping.skip_reason ?? '')) {
-      update.mutate({ key: skipping, patch: { skip_reason: text || null } })
-    }
+  const skip = (withReason: boolean) => {
+    if (skipping) change(skipping, 'skip', { skipReason: withReason ? skipReason : null })
     setSkipping(null)
   }
 
@@ -105,7 +108,7 @@ export function BoardPage() {
           )}
           <Flex gap={8} align="center">
             <Switch checked={showClosed} onChange={setShowClosed} id="show-closed" size="small" />
-            <label htmlFor="show-closed">Show rejected and skipped</label>
+            <label htmlFor="show-closed">Show closed (rejected, withdrawn, skipped, expired)</label>
           </Flex>
         </Flex>
       </Flex>
@@ -123,6 +126,9 @@ export function BoardPage() {
           <div className="board" role="list" aria-label="Status columns">
             {columns.map((status) => (
               <Column key={status} status={status} jobs={byStatus.get(status) ?? []} entryLevelOf={entryLevelOf}
+                // While dragging, only the moves allowed from the card's status take a drop.
+                dropDisabled={dragging !== null && !canMove(dragging.status, status)}
+                dimmed={dragging !== null && dragging.status !== status && !canMove(dragging.status, status)}
                 onOpen={(job) => setOpenKey(jobKeyString(job))} />
             ))}
           </div>
@@ -137,16 +143,18 @@ export function BoardPage() {
       <Modal
         open={skipping !== null}
         title="Why skip? (optional)"
-        okText="Save reason"
-        cancelText="No reason"
-        onOk={saveSkipReason}
         onCancel={() => setSkipping(null)}
         destroyOnHidden
+        footer={[
+          <Button key="cancel" onClick={() => setSkipping(null)}>Cancel</Button>,
+          <Button key="none" onClick={() => skip(false)}>Skip, no reason</Button>,
+          <Button key="skip" type="primary" onClick={() => skip(true)}>Skip</Button>,
+        ]}
       >
         <Flex vertical gap={8}>
           <Typography.Text type="secondary" className="clamp-2">{skipping?.title}</Typography.Text>
           <Input autoFocus value={skipReason} aria-label="Skip reason" placeholder="e.g. wants 3 years of Java"
-            onChange={(e) => setSkipReason(e.target.value)} onPressEnter={saveSkipReason} />
+            onChange={(e) => setSkipReason(e.target.value)} onPressEnter={() => skip(true)} />
           <Typography.Text type="secondary">Reasons help you tune the rules.</Typography.Text>
         </Flex>
       </Modal>
@@ -154,24 +162,29 @@ export function BoardPage() {
   )
 }
 
-function Column({ status, jobs, onOpen, entryLevelOf }: {
+function Column({ status, jobs, onOpen, entryLevelOf, dropDisabled, dimmed }: {
   status: JobStatus
   jobs: Job[]
   onOpen: (job: Job) => void
   entryLevelOf: (job: Job) => EntryLevel
+  dropDisabled: boolean
+  dimmed: boolean
 }) {
   const { token } = theme.useToken()
-  const { setNodeRef, isOver } = useDroppable({ id: status })
+  const { setNodeRef, isOver } = useDroppable({ id: status, disabled: dropDisabled })
   return (
     <section
       ref={setNodeRef}
       role="listitem"
       aria-label={`${STATUS_META[status].label}: ${jobs.length} jobs`}
+      aria-disabled={dropDisabled || undefined}
       className="board-column"
       style={{
         background: isOver ? token.colorPrimaryBg : token.colorFillQuaternary,
         border: `1px solid ${isOver ? token.colorPrimaryBorder : token.colorBorderSecondary}`,
         borderRadius: token.borderRadiusLG,
+        opacity: dimmed ? 0.45 : 1,
+        transition: 'opacity 120ms ease',
       }}
     >
       <Flex gap={8} align="center" style={{ padding: '10px 12px 6px' }}>

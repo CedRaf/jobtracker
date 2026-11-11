@@ -111,14 +111,28 @@ describe('JobsPage', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
   })
 
-  it('keeps a skipped job listed and asks why', async () => {
-    renderPage()
+  it('asks why before skipping, saves both together and keeps the job listed', async () => {
+    const api = createDemoApi()
+    renderPage(api)
     await screen.findByText('Junior Full Stack Developer')
     await userEvent.click(screen.getByRole('combobox', { name: 'Status of Junior Full Stack Developer' }))
     await userEvent.click(await screen.findByTitle('Skip'))
     expect(await screen.findByText('Why skip? (optional)')).toBeInTheDocument()
-    expect(screen.getByText('Junior Full Stack Developer')).toBeInTheDocument()
+    await userEvent.type(screen.getByRole('textbox', { name: 'Skip reason' }), 'wants Java')
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }))
     expect(await screen.findByRole('button', { name: 'Undo' })).toBeInTheDocument()
+    expect(screen.getByText('Junior Full Stack Developer')).toBeInTheDocument()
+    const saved = (await api.listJobs()).find((j) => j.title === 'Junior Full Stack Developer')
+    expect(saved).toMatchObject({ status: 'skip', skip_reason: 'wants Java' })
+  })
+
+  it('only offers the moves allowed from the current status', async () => {
+    renderPage()
+    await screen.findByText('Junior Full Stack Developer')
+    await userEvent.click(screen.getByRole('combobox', { name: 'Status of Junior Full Stack Developer' }))
+    const listbox = await screen.findByRole('listbox')
+    const offered = [...listbox.parentElement!.querySelectorAll('[title]')].map((o) => o.getAttribute('title'))
+    expect(offered).toEqual(['New', 'Applied', 'Skip'])
   })
 
   it('says when there is nothing left to review', async () => {
