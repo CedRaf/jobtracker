@@ -16,7 +16,9 @@ export type JobStatus =
   | 'interview'
   | 'offer'
   | 'rejected'
+  | 'withdrawn'
   | 'skip'
+  | 'expired'
 
 export interface JobKey {
   source: JobOrigin
@@ -43,6 +45,7 @@ export interface Job extends JobKey {
   email_source: string | null
   url: string
   search_terms: string[]
+  /** Changed only through DataApi.changeStatus / correctStatus / revertStatus. */
   status: JobStatus
   status_changed_at: string | null
   skip_reason: string | null
@@ -55,9 +58,9 @@ export interface Job extends JobKey {
   resume_version: string
   role_type: RoleType
   work_setup: WorkSetup
-  /** Set by the database the first time the job reaches Applied or later; editable. */
+  /** Set by the move to Applied; editable, but not clearable once you applied. */
   applied_at: string | null
-  /** Set by the database at the first exam/interview/offer/rejection after applying; editable. */
+  /** Set by the first move to exam/interview/offer/rejected; editable, not clearable after. */
   first_response_at: string | null
 }
 
@@ -71,8 +74,24 @@ export const APPLICATION_FIELDS = [
 ] as const
 export type ApplicationFields = Pick<Job, (typeof APPLICATION_FIELDS)[number]>
 
-/** The columns the dashboard may change (the database only grants these). */
-export type JobPatch = Partial<Pick<Job, 'status' | 'skip_reason' | 'notes' | 'email_drafted_at'> & ApplicationFields>
+/** The columns the dashboard may change directly (the database only grants these). The status isn't one. */
+export type JobPatch = Partial<Pick<Job, 'skip_reason' | 'notes' | 'email_drafted_at'> & ApplicationFields>
+
+/** Extra details for a status move (public.change_job_status). */
+export interface MoveOptions {
+  /** Saved with a move to Skip. */
+  skipReason?: string | null
+  /** How you applied, for a move to Applied. */
+  channel?: ApplicationChannel
+  /** The day you applied, for a move to Applied (default: now). */
+  appliedAt?: string
+}
+
+/** A status move's result: the saved job, and the history row Undo reverts. */
+export interface MoveResult {
+  job: Job
+  historyId: number
+}
 
 /** An application you log yourself (a referral, a direct message, ...): stored as a 'manual' job. */
 export interface NewApplication extends Partial<ApplicationFields> {
@@ -205,13 +224,20 @@ export interface SettingsVersion {
   created_at: string
 }
 
-/** One status change, recorded by a database trigger (the status_history table). */
+/** One status change (the status_history table), written by the status functions. */
 export interface StatusChange {
+  id: number
   job_source: JobOrigin
   job_external_id: string
   from_status: JobStatus | null
   to_status: JobStatus
   changed_at: string
+  /** A move you made, a Correct status, or the daily expiry. */
+  kind: 'change' | 'correction' | 'expiry'
+  /** Set when the change was undone or replaced by a correction: the analytics skip it. */
+  reverted_at: string | null
+  /** Whether it has a snapshot to undo from (rows from before Undo existed don't). */
+  undoable: boolean
 }
 
 export interface AppUser {
@@ -229,6 +255,15 @@ export interface DataApi {
   listJobs(): Promise<Job[]>
   getDescription(key: JobKey): Promise<string | null>
   updateJob(key: JobKey, patch: JobPatch): Promise<Job>
+  /**
+   * Moves a job to another status, if the move is allowed (lib/transitions.ts).
+   * `from` is the status you saw: refused if the job has moved on since.
+   */
+  changeStatus(key: JobKey, from: JobStatus, to: JobStatus, options?: MoveOptions): Promise<MoveResult>
+  /** Undoes a job's latest status change exactly (the history row's id). */
+  revertStatus(historyId: number): Promise<Job>
+  /** Sets any status after the fact, replacing the current one in the history. */
+  correctStatus(key: JobKey, from: JobStatus, to: JobStatus, options?: Pick<MoveOptions, 'skipReason'>): Promise<MoveResult>
   /** Logs an application no scraper found, as a 'manual' job. */
   logApplication(application: NewApplication): Promise<Job>
   /** Resume variants, 'unknown' first. */

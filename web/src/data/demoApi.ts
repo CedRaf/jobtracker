@@ -1,25 +1,28 @@
 import { demoDescription, demoFilteredJobs, demoJobs, demoLatestRuns, demoScrapeRuns, demoStatusHistory } from './demoData'
 import { DEFAULT_SETTINGS } from './defaultSettings'
-import type { DataApi, Job, JobKey, JobStatus, NewApplication, ResumeVersion, SettingsVersion } from './types'
+import type {
+  DataApi, Job, JobKey, JobStatus, MoveOptions, NewApplication, ResumeVersion, SettingsVersion, StatusChange,
+} from './types'
 import { resumeKey } from '../lib/application'
+import { APPLIED_STAGES, canMove, RESPONSE_STAGES } from '../lib/transitions'
 
 const DEMO_USER = { id: 'demo-user', email: 'demo@example.com' }
 const wait = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms))
 
-const APPLIED: JobStatus[] = ['applied', 'emailed', 'exam', 'interview', 'offer', 'rejected']
-const RESPONDED: JobStatus[] = ['exam', 'interview', 'offer', 'rejected']
+/** The fields a status move changes (public.job_status_snapshot). */
+type Snapshot = Pick<Job, 'status' | 'applied_at' | 'first_response_at' | 'channel' | 'skip_reason' | 'status_changed_at'>
+const snapshot = (j: Job): Snapshot => ({
+  status: j.status, applied_at: j.applied_at, first_response_at: j.first_response_at, channel: j.channel,
+  skip_reason: j.skip_reason, status_changed_at: j.status_changed_at,
+})
+const sameSnapshot = (a: Snapshot, b: Snapshot) => JSON.stringify(a) === JSON.stringify(b)
 
-/** What public.jobs_track_application() does on a status change (never overwrites a set value). */
-function trackApplication(job: Job, wasApplied: boolean, now: string) {
-  if (APPLIED.includes(job.status)) {
-    job.applied_at ??= now
-    if (job.channel === 'unknown' && job.source !== 'manual') {
-      job.channel = job.status === 'emailed' ? 'direct_message' : 'job_board'
-    }
-  }
-  if (RESPONDED.includes(job.status) && wasApplied && job.first_response_at === null) {
-    job.first_response_at = now
-  }
+/** A history row, with what the database keeps beside it for Undo. */
+type Row = StatusChange & { before: Snapshot | null; after: Snapshot | null; supersedes: number | null }
+
+/** Errors worded like the database's, so the UI shows the same messages in the demo. */
+const refuse = (message: string): never => {
+  throw new Error(message)
 }
 
 function manualJob(application: NewApplication, external_id: string, now: string): Job {
@@ -37,7 +40,21 @@ function manualJob(application: NewApplication, external_id: string, now: string
 export function createDemoApi(): DataApi {
   const jobs = demoJobs()
   const filtered = demoFilteredJobs()
-  const history = demoStatusHistory(jobs)
+  const history: Row[] = demoStatusHistory(jobs).map((h) => ({ ...h, before: null, after: null, supersedes: null }))
+  const record = (
+    job: Job, from: JobStatus | null, kind: Row['kind'], before: Snapshot | null, supersedes: number | null = null,
+  ) => {
+    const row: Row = {
+      id: history.length + 1, job_source: job.source, job_external_id: job.external_id, from_status: from,
+      to_status: job.status, changed_at: new Date().toISOString(), kind, reverted_at: null,
+      undoable: before !== null, before, after: before && snapshot(job), supersedes,
+    }
+    history.push(row)
+    return row
+  }
+  const checkFrom = (job: Job, from: JobStatus) => {
+    if (job.status !== from) refuse(`This job is ${job.status} now, not ${from}: reload and try again`)
+  }
   const resumeVersions: ResumeVersion[] = [
     { key: 'unknown', label: 'Unknown' }, { key: 'web', label: 'Web' }, { key: 'ai', label: 'AI' },
   ]
@@ -72,32 +89,91 @@ export function createDemoApi(): DataApi {
     async updateJob(key, patch) {
       await wait()
       const job = find(key)
-      const before = { status: job.status, applied: job.applied_at !== null }
-      Object.assign(job, patch)
-      if (patch.status && patch.status !== before.status) {
-        // What the database triggers do for real.
-        const now = new Date().toISOString()
-        history.push({
-          job_source: job.source, job_external_id: job.external_id,
-          from_status: before.status, to_status: patch.status, changed_at: now,
-        })
-        job.status_changed_at = now
-        trackApplication(job, before.applied, now)
+      // What public.jobs_guard_changes() refuses.
+      if (patch.applied_at === null && job.applied_at !== null && APPLIED_STAGES.includes(job.status)) {
+        refuse(`A ${job.status} job needs the day you applied`)
       }
+      if (patch.first_response_at === null && job.first_response_at !== null && RESPONSE_STAGES.includes(job.status)) {
+        refuse('A job that heard back needs the day of the first response')
+      }
+      if (patch.skip_reason && job.status !== 'skip') refuse('Only a skipped job has a skip reason')
+      Object.assign(job, patch)
       return { ...job }
+    },
+    // What public.change_job_status() does.
+    async changeStatus(key, from, to, options: MoveOptions = {}) {
+      await wait()
+      const job = find(key)
+      checkFrom(job, from)
+      if (!canMove(job.status, to)) refuse(`A job can't move from ${job.status} to ${to}`)
+      const before = snapshot(job)
+      const now = new Date().toISOString()
+      job.status = to
+      job.status_changed_at = now
+      job.skip_reason = to === 'skip' ? options.skipReason?.trim() || null : null
+      if (to === 'applied') {
+        job.applied_at = options.appliedAt ?? job.applied_at ?? now
+        job.channel = options.channel
+          ?? (job.channel === 'unknown' && job.source !== 'manual' ? 'job_board' : job.channel)
+      } else if (APPLIED_STAGES.includes(to)) {
+        job.applied_at ??= now
+      }
+      if (RESPONSE_STAGES.includes(to) && job.first_response_at === null) {
+        job.first_response_at = job.applied_at && job.applied_at > now ? job.applied_at : now
+      }
+      return { job: { ...job }, historyId: record(job, before.status, 'change', before).id }
+    },
+    // What public.revert_status_change() does.
+    async revertStatus(historyId) {
+      await wait()
+      const row = history.find((h) => h.id === historyId) ?? refuse('Change not found')
+      if (row.reverted_at) refuse('That change was already undone')
+      if (!row.before || !row.after) refuse("Changes made before Undo existed can't be undone: use Correct status")
+      const later = history.some((h) => h.id > row.id && h.reverted_at === null
+        && h.job_source === row.job_source && h.job_external_id === row.job_external_id)
+      if (later) refuse('Only the latest change can be undone')
+      const job = find({ source: row.job_source, external_id: row.job_external_id })
+      if (!sameSnapshot(snapshot(job), row.after!)) refuse('The job was edited after that change: use Correct status')
+      Object.assign(job, row.before)
+      row.reverted_at = new Date().toISOString()
+      const replaced = history.find((h) => h.id === row.supersedes)
+      if (replaced) replaced.reverted_at = null
+      return { ...job }
+    },
+    // What public.correct_job_status() does.
+    async correctStatus(key, from, to, options = {}) {
+      await wait()
+      const job = find(key)
+      checkFrom(job, from)
+      if (to === 'emailed') refuse('Emailed is no longer a status: use Applied with the direct message channel')
+      if (job.status === to) refuse(`The job is already ${to}`)
+      const now = new Date().toISOString()
+      const latest = history.filter((h) => h.reverted_at === null
+        && h.job_source === job.source && h.job_external_id === job.external_id).at(-1)
+      let replaced: number | null = null
+      if (latest && latest.to_status === job.status) {
+        latest.reverted_at = now
+        replaced = latest.id
+      }
+      const before = snapshot(job)
+      const neverApplied = to === 'new' || to === 'skip' || to === 'expired'
+      job.status = to
+      job.status_changed_at = now
+      job.skip_reason = to === 'skip' ? options.skipReason?.trim() || null : null
+      job.applied_at = neverApplied ? null : job.applied_at ?? now
+      if (neverApplied || to === 'applied') job.first_response_at = null
+      else if (RESPONSE_STAGES.includes(to)) job.first_response_at ??= now
+      if (!neverApplied && job.channel === 'unknown' && job.source !== 'manual') job.channel = 'job_board'
+      return { job: { ...job }, historyId: record(job, before.status, 'correction', before, replaced).id }
     },
     async logApplication(application) {
       await wait()
       const now = new Date().toISOString()
       const job = manualJob(application, `manual-${jobs.length}`, now)
-      trackApplication(job, false, now)
+      // What public.jobs_track_application() does on insert.
+      if (APPLIED_STAGES.includes(job.status)) job.applied_at ??= now
       jobs.unshift(job)
-      if (job.status !== 'new') {
-        history.push({
-          job_source: 'manual', job_external_id: job.external_id,
-          from_status: null, to_status: job.status, changed_at: job.applied_at ?? now,
-        })
-      }
+      if (job.status !== 'new') record(job, null, 'change', null).changed_at = job.applied_at ?? now
       return { ...job }
     },
     async listResumeVersions() {
@@ -134,7 +210,7 @@ export function createDemoApi(): DataApi {
     },
     async listStatusHistory() {
       await wait()
-      return history.map((h) => ({ ...h }))
+      return history.map(({ before: _before, after: _after, supersedes: _supersedes, ...h }) => h)
     },
     async listSettingsVersions() {
       await wait()

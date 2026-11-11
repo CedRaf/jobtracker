@@ -1,7 +1,8 @@
 import { createContext, useContext } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
-  DataApi, Job, JobKey, JobOrigin, JobPatch, NewApplication, ResumeVersion, ScraperSettings, SettingsVersion,
+  DataApi, Job, JobKey, JobOrigin, JobPatch, JobStatus, MoveOptions, MoveResult, NewApplication, ResumeVersion,
+  ScraperSettings, SettingsVersion,
 } from './types'
 import { jobKeyString } from './types'
 
@@ -46,8 +47,6 @@ export function useJobDescription(key: JobKey | null) {
 export function useUpdateJob() {
   const api = useApi()
   const queryClient = useQueryClient()
-  const sameJob = (key: JobKey) => (j: Job) =>
-    j.source === key.source && j.external_id === key.external_id
 
   return useMutation({
     mutationFn: ({ key, patch }: { key: JobKey; patch: JobPatch }) => api.updateJob(key, patch),
@@ -62,14 +61,79 @@ export function useUpdateJob() {
     onError: (_error, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(JOBS, context.previous)
     },
-    onSuccess: (saved, { key, patch }) => {
+    onSuccess: (saved, { key }) => {
       queryClient.setQueryData<Job[]>(JOBS, (jobs) =>
         jobs?.map((j) => (sameJob(key)(j) ? saved : j)),
       )
-      // A status change adds a row to status_history (the analytics read it).
-      if (patch.status) queryClient.invalidateQueries({ queryKey: HISTORY })
     },
   })
+}
+
+const sameJob = (key: JobKey) => (j: Job) => j.source === key.source && j.external_id === key.external_id
+
+/**
+ * The shared shape of the three status mutations: show the new status at once,
+ * roll back on error, then store the saved job and refetch the history (the
+ * analytics and Undo read it).
+ */
+function useStatusMutation<V extends { key: JobKey }, R>(
+  run: (vars: V) => Promise<R>,
+  optimistic: (vars: V) => Partial<Job> | null,
+  savedJob: (result: R) => Job,
+) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: run,
+    onMutate: async (vars: V) => {
+      await queryClient.cancelQueries({ queryKey: JOBS })
+      const previous = queryClient.getQueryData<Job[]>(JOBS)
+      const patch = optimistic(vars)
+      if (patch) {
+        queryClient.setQueryData<Job[]>(JOBS, (jobs) => jobs?.map((j) => (sameJob(vars.key)(j) ? { ...j, ...patch } : j)))
+      }
+      return { previous }
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(JOBS, context.previous)
+    },
+    onSuccess: (result) => {
+      const saved = savedJob(result)
+      queryClient.setQueryData<Job[]>(JOBS, (jobs) => jobs?.map((j) => (sameJob(saved)(j) ? saved : j)))
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: HISTORY }),
+  })
+}
+
+/** Moves a job to an allowed status (lib/transitions.ts). Resolves with the history id Undo needs. */
+export function useMoveJob() {
+  const api = useApi()
+  return useStatusMutation(
+    ({ key, from, to, options }: { key: JobKey; from: JobStatus; to: JobStatus; options?: MoveOptions }) =>
+      api.changeStatus(key, from, to, options),
+    ({ to }) => ({ status: to }),
+    (result: MoveResult) => result.job,
+  )
+}
+
+/** Sets any status after the fact (Correct status). */
+export function useCorrectStatus() {
+  const api = useApi()
+  return useStatusMutation(
+    ({ key, from, to, skipReason }: { key: JobKey; from: JobStatus; to: JobStatus; skipReason?: string | null }) =>
+      api.correctStatus(key, from, to, { skipReason }),
+    ({ to }) => ({ status: to }),
+    (result: MoveResult) => result.job,
+  )
+}
+
+/** Undoes a job's latest status change exactly. */
+export function useRevertStatus() {
+  const api = useApi()
+  return useStatusMutation(
+    ({ historyId }: { key: JobKey; historyId: number }) => api.revertStatus(historyId),
+    () => null,
+    (job: Job) => job,
+  )
 }
 
 export function useLatestScrapeRuns() {

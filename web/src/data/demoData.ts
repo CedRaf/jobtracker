@@ -1,5 +1,6 @@
 // Made-up sample data for demo mode. No real listings or companies.
 // One job site only, with a generic name: the public demo doesn't show real site names.
+import { APPLIED_STAGES, RESPONSE_STAGES } from '../lib/transitions'
 import type {
   ApplicationChannel, FilteredJob, Job, JobStatus, RoleType, ScrapeRun, StatusChange, WorkSetup,
 } from './types'
@@ -175,8 +176,6 @@ function guessWorkSetup(arrangements: string[], location: string): WorkSetup {
   return 'unknown'
 }
 
-const APPLIED_STAGES: JobStatus[] = ['applied', 'emailed', 'exam', 'interview', 'offer', 'rejected']
-const RESPONSE_STAGES: JobStatus[] = ['exam', 'interview', 'offer', 'rejected']
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 
@@ -337,21 +336,28 @@ export function demoScrapeRuns(): ScrapeRun[] {
 /** The latest run (the demo has one source). */
 export const demoLatestRuns = () => demoScrapeRuns().slice(0, 1)
 
-/** The status changes behind each demo job's current status, oldest first. */
+/**
+ * The status changes behind each demo job's current status, oldest first. Like
+ * rows written before Undo existed: no snapshots, so they can't be undone.
+ */
 export function demoStatusHistory(jobs: Job[]): StatusChange[] {
   return jobs
     .flatMap((job) =>
-      (paths.get(job.external_id) ?? []).map(([to, afterHours], i, path): StatusChange => ({
+      (paths.get(job.external_id) ?? []).map(([to, afterHours], i, path): Omit<StatusChange, 'id'> => ({
         job_source: job.source,
         job_external_id: job.external_id,
         // A logged application starts at its stage, as the database's insert trigger records it.
         from_status: i > 0 ? path[i - 1][0] : job.source === 'manual' ? null : 'new',
         to_status: to,
         changed_at: new Date(Date.parse(job.first_seen) + afterHours * HOUR).toISOString(),
+        kind: 'change',
+        reverted_at: null,
+        undoable: false,
       })),
     )
     .filter((change) => Date.parse(change.changed_at) <= Date.now())
     .sort((a, b) => a.changed_at.localeCompare(b.changed_at))
+    .map((change, i) => ({ ...change, id: i + 1 }))
 }
 
 /** How a job got to its status: [from, to, hours after it was first seen]. */
@@ -365,5 +371,7 @@ function statusPath(status: JobStatus): [JobStatus, JobStatus, number][] {
     case 'interview': return [['new', 'applied', 2], ['applied', 'interview', 54]]
     case 'rejected': return [['new', 'applied', 3], ['applied', 'rejected', 50]]
     case 'offer': return [['new', 'applied', 2], ['applied', 'interview', 70], ['interview', 'offer', 170]]
+    case 'withdrawn': return [['new', 'applied', 2], ['applied', 'withdrawn', 80]]
+    case 'expired': return [['new', 'expired', 15 * 24]]
   }
 }

@@ -1,6 +1,6 @@
 import { createClient, type User } from '@supabase/supabase-js'
 import type {
-  AppUser, DataApi, FilteredJob, Job, JobKey, ResumeVersion, ScrapeRun, ScraperDispatch, SettingsVersion,
+  AppUser, DataApi, FilteredJob, Job, JobKey, MoveResult, ResumeVersion, ScrapeRun, ScraperDispatch, SettingsVersion,
   StatusChange,
 } from './types'
 import { resumeKey } from '../lib/application'
@@ -24,7 +24,8 @@ const SETTINGS_COLUMNS = 'version,settings,note,created_at'
 
 const DISPATCH_COLUMNS = 'slot,sources,status_code,error,created_at'
 
-const HISTORY_COLUMNS = 'job_source,job_external_id,from_status,to_status,changed_at'
+// `undoable` is the snapshot's status: null on rows from before Undo existed.
+const HISTORY_COLUMNS = 'id,job_source,job_external_id,from_status,to_status,changed_at,kind,reverted_at,undoable:before->>status'
 
 // PostgREST returns at most 1000 rows per request by default.
 const PAGE = 1000
@@ -32,6 +33,12 @@ const PAGE = 1000
 /** The first (newest) run of each source, from runs sorted newest first. */
 export const latestPerSource = (runs: ScrapeRun[]) =>
   runs.filter((run, i) => runs.findIndex((r) => r.source === run.source) === i)
+
+/** A status function's reply: {job (the row without its description), history_id}. */
+function moveResult(data: unknown): MoveResult {
+  const { job, history_id } = data as { job: Job; history_id: number }
+  return { job, historyId: history_id }
+}
 
 const toUser = (user: User | null | undefined): AppUser | null =>
   user ? { id: user.id, email: user.email ?? null } : null
@@ -87,6 +94,32 @@ export function createSupabaseApi(url: string, publishableKey: string): DataApi 
         .single<Job>()
       if (error) throw error
       return data ?? []
+    },
+
+    // The status only changes through these database functions (supabase/migrations/*_job_status_machine.sql).
+    async changeStatus(key, from, to, options = {}) {
+      const { data, error } = await supabase.rpc('change_job_status', {
+        p_source: key.source, p_external_id: key.external_id, p_to: to, p_expected_from: from,
+        p_skip_reason: options.skipReason ?? null, p_channel: options.channel ?? null,
+        p_applied_at: options.appliedAt ?? null,
+      })
+      if (error) throw error
+      return moveResult(data)
+    },
+
+    async revertStatus(historyId) {
+      const { data, error } = await supabase.rpc('revert_status_change', { p_history_id: historyId })
+      if (error) throw error
+      return (data as { job: Job }).job
+    },
+
+    async correctStatus(key, from, to, options = {}) {
+      const { data, error } = await supabase.rpc('correct_job_status', {
+        p_source: key.source, p_external_id: key.external_id, p_to: to, p_expected_from: from,
+        p_skip_reason: options.skipReason ?? null,
+      })
+      if (error) throw error
+      return moveResult(data)
     },
 
     async logApplication(application) {
@@ -193,15 +226,17 @@ export function createSupabaseApi(url: string, publishableKey: string): DataApi 
       return data
     },
 
-    listStatusHistory: () =>
-      fetchAll<StatusChange>((from, to) =>
+    async listStatusHistory() {
+      const rows = await fetchAll<Omit<StatusChange, 'undoable'> & { undoable: string | null }>((from, to) =>
         supabase
           .from('status_history')
           .select(HISTORY_COLUMNS)
-          .order('changed_at', { ascending: true })
+          .order('id', { ascending: true })
           .range(from, to)
-          .returns<StatusChange[]>(),
-      ),
+          .returns<(Omit<StatusChange, 'undoable'> & { undoable: string | null })[]>(),
+      )
+      return rows.map((r) => ({ ...r, undoable: r.undoable !== null }))
+    },
 
     auth: {
       async getUser() {
