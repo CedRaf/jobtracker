@@ -22,8 +22,9 @@ interface Values {
   notes?: string
 }
 
-// A logged application starts at a stage you've reached; New and Skip don't apply.
-const STAGES: JobStatus[] = ['applied', 'emailed', 'exam', 'interview', 'offer', 'rejected']
+// A logged application starts at a stage you've reached; New, Skip and Expired
+// don't apply, and how you applied (email or not) is the channel.
+const STAGES: JobStatus[] = ['applied', 'exam', 'interview', 'offer', 'rejected', 'withdrawn']
 
 const INITIAL: Partial<Values> = {
   status: 'applied', channel: 'referral', resume_version: 'unknown', role_type: 'unknown', work_setup: 'unknown',

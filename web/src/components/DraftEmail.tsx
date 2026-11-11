@@ -1,21 +1,26 @@
 import { useState } from 'react'
 import { App, Button, Flex, Form, Input, Modal, Tooltip, Typography } from 'antd'
-import { EditOutlined, MailOutlined } from '@ant-design/icons'
-import type { Job, JobPatch } from '../data/types'
+import { CheckOutlined, EditOutlined, MailOutlined } from '@ant-design/icons'
+import type { Job } from '../data/types'
 import { useUpdateJob } from '../data/hooks'
+import { canMove } from '../lib/transitions'
+import { useChangeStatus } from './useChangeStatus'
 import {
   DEFAULT_TEMPLATE, fillTemplate, gmailComposeUrl, loadTemplate, PLACEHOLDERS, saveTemplate, type EmailTemplate,
 } from '../lib/emailTemplate'
 import { errorText, fromNow } from '../lib/format'
 
 /**
- * Opens Gmail with the application email filled in, then records the draft
- * (and moves a New or Applied job to Emailed). Gmail compose links can't
- * attach files, so the resume has to be attached by hand.
+ * Opens Gmail with the application email filled in and records the draft. It
+ * doesn't change the status: opening a draft isn't sending it. Once you've
+ * sent it, "Mark as applied by email" moves the job to Applied with the direct
+ * message channel. Gmail compose links can't attach files, so the resume has
+ * to be attached by hand.
  */
 export function DraftEmailButton({ job }: { job: Job }) {
   const { message } = App.useApp()
   const update = useUpdateJob()
+  const change = useChangeStatus()
   const [editing, setEditing] = useState(false)
 
   const draft = () => {
@@ -27,10 +32,8 @@ export function DraftEmailButton({ job }: { job: Job }) {
       account: template.gmailAccount,
     }), '_blank', 'noopener')
 
-    const patch: JobPatch = { email_drafted_at: new Date().toISOString() }
-    if (job.status === 'new' || job.status === 'applied') patch.status = 'emailed'
-    update.mutate({ key: job, patch }, {
-      onSuccess: () => message.success(patch.status ? 'Marked as emailed. Remember to attach your resume.' : 'Draft recorded'),
+    update.mutate({ key: job, patch: { email_drafted_at: new Date().toISOString() } }, {
+      onSuccess: () => message.success('Draft recorded. Remember to attach your resume.'),
       onError: (e) => message.error(`Couldn't save: ${errorText(e)}`),
     })
   }
@@ -41,6 +44,11 @@ export function DraftEmailButton({ job }: { job: Job }) {
         <Tooltip title={job.emails.length ? undefined : 'No email found in the listing; add the recipient in Gmail'}>
           <Button icon={<MailOutlined />} onClick={draft}>Draft in Gmail</Button>
         </Tooltip>
+        {job.email_drafted_at && canMove(job.status, 'applied') && (
+          <Button icon={<CheckOutlined />} onClick={() => change(job, 'applied', { channel: 'direct_message' })}>
+            Mark as applied by email
+          </Button>
+        )}
         <Button type="link" icon={<EditOutlined />} onClick={() => setEditing(true)}>Edit template</Button>
       </Flex>
       {job.email_drafted_at && (

@@ -8,6 +8,7 @@ import {
   CHANNEL_LABELS, ROLE_TYPE_LABELS, WORK_SETUP_LABELS, options, resumeKey, resumeOptions,
 } from '../lib/application'
 import { daysToResponse, deriveOutcome, OUTCOME_LABELS } from '../lib/analytics'
+import { APPLIED_STAGES, liveHistory, RESPONSE_STAGES } from '../lib/transitions'
 import { errorText } from '../lib/format'
 
 const SELECT_WIDTH = 168
@@ -55,7 +56,7 @@ export function ApplicationFields({ job }: { job: Job }) {
   const history = useStatusHistory()
   const days = daysToResponse(job)
   // Like the analytics: the furthest stage it ever reached, not just the current one.
-  const outcome = deriveOutcome(new Set([job.status, ...(history.data ?? [])
+  const outcome = deriveOutcome(new Set([job.status, ...liveHistory(history.data ?? [])
     .filter((h) => h.job_source === job.source && h.job_external_id === job.external_id)
     .map((h) => h.to_status)]))
 
@@ -84,12 +85,15 @@ export function ApplicationFields({ job }: { job: Job }) {
             options={options(WORK_SETUP_LABELS)} onChange={(work_setup) => save({ work_setup })} />
         </Field>
         <Field id={id('applied')} label="Applied on">
+          {/* The status needs these dates once set: they can be changed, not cleared. */}
           <DatePicker id={id('applied')} value={job.applied_at ? dayjs(job.applied_at) : null}
+            allowClear={!(job.applied_at && APPLIED_STAGES.includes(job.status))}
             style={{ width: SELECT_WIDTH }} onChange={setApplied}
             disabledDate={(d) => d.isAfter(dayjs(), 'day')} />
         </Field>
         <Field id={id('response')} label="First response">
           <DatePicker id={id('response')} value={job.first_response_at ? dayjs(job.first_response_at) : null}
+            allowClear={!(job.first_response_at && RESPONSE_STAGES.includes(job.status))}
             style={{ width: SELECT_WIDTH }} onChange={setResponse} placeholder="No reply yet"
             disabledDate={(d) => d.isAfter(dayjs(), 'day') || (!!job.applied_at && d.isBefore(dayjs(job.applied_at), 'day'))} />
         </Field>
