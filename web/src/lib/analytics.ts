@@ -2,6 +2,7 @@ import dayjs from 'dayjs'
 import type { FilteredJob, Job, JobSource, JobStatus, ScrapeRun, StatusChange } from '../data/types'
 import { jobKeyString } from '../data/types'
 import { groupByReason } from './reasons'
+import { liveHistory } from './transitions'
 
 const DAY = 86_400_000
 
@@ -65,11 +66,14 @@ export function skillDemand(jobs: Pick<Job, 'matched_skills' | 'missing_skills'>
 const APPLIED: JobStatus[] = ['applied', 'emailed']
 const RESPONSE: JobStatus[] = ['exam', 'interview', 'offer', 'rejected']
 
-/** Every status a job has had: its history plus its current status. */
+/**
+ * Every status a job has had: its history plus its current status. Changes you
+ * undid, or replaced with Correct status, don't count.
+ */
 function statusesByJob(jobs: Job[], history: StatusChange[]) {
   const seen = new Map<string, Set<JobStatus>>()
   for (const job of jobs) seen.set(jobKeyString(job), new Set([job.status]))
-  for (const change of history) {
+  for (const change of liveHistory(history)) {
     seen.get(jobKeyString({ source: change.job_source, external_id: change.job_external_id }))?.add(change.to_status)
   }
   return seen
@@ -94,7 +98,8 @@ export function funnel(jobs: Job[], history: StatusChange[]) {
   const heardBack = has(RESPONSE)
   const stages: FunnelStage[] = [
     { key: 'found', label: 'Found', count: reached.length },
-    { key: 'reviewed', label: 'Reviewed', count: reached.filter((s) => [...s].some((st) => st !== 'new')).length },
+    // Expiring isn't a review: nobody looked at the job.
+    { key: 'reviewed', label: 'Reviewed', count: reached.filter((s) => [...s].some((st) => st !== 'new' && st !== 'expired')).length },
     { key: 'applied', label: 'Applied or emailed', count: applied },
     { key: 'heard', label: 'Heard back', count: heardBack },
     { key: 'interview', label: 'Interview', count: has(['interview', 'offer']) },
@@ -227,7 +232,7 @@ export interface DropOffStage {
   rejected: number
   /** ...and are still at this stage. */
   waiting: number
-  /** ...and ended some other way (e.g. you withdrew and marked it Skip). */
+  /** ...and ended some other way (e.g. you withdrew). */
   other: number
 }
 

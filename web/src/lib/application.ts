@@ -1,7 +1,8 @@
-import type { ApplicationChannel, JobStatus, ResumeVersion, RoleType, WorkSetup } from '../data/types'
+import type { ApplicationChannel, ResumeVersion, RoleType, WorkSetup } from '../data/types'
+import { APPLIED_STAGES } from './transitions'
 
 /** Statuses that mean you applied (the drawer then shows the application fields). */
-export const APPLIED_STATUSES: JobStatus[] = ['applied', 'emailed', 'exam', 'interview', 'offer', 'rejected']
+export const APPLIED_STATUSES = APPLIED_STAGES
 
 // Labels for the application fields, in the order the dropdowns list them.
 // 'unknown' always comes last: it's what nobody has set yet.

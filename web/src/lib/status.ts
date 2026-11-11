@@ -4,7 +4,8 @@ import type { JobStatus } from '../data/types'
 // antd preset colours (they adapt to dark mode). "New" shares the teal primary:
 // it's the review queue. Applied and Emailed sit far apart (blue, gold) so their
 // small dots don't blur together; Rejected and Skip differ too. Exam (magenta)
-// leads into Interview (purple).
+// leads into Interview (purple). Emailed is legacy: only jobs emailed before
+// it merged into Applied have it (the channel now says how you applied).
 export const STATUS_META: Record<JobStatus, { label: string; color: string }> = {
   new: { label: 'New', color: 'cyan' },
   applied: { label: 'Applied', color: 'blue' },
@@ -13,12 +14,14 @@ export const STATUS_META: Record<JobStatus, { label: string; color: string }> = 
   interview: { label: 'Interview', color: 'purple' },
   offer: { label: 'Offer', color: 'green' },
   rejected: { label: 'Rejected', color: 'volcano' },
+  withdrawn: { label: 'Withdrawn', color: 'geekblue' },
   skip: { label: 'Skip', color: 'default' },
+  expired: { label: 'Expired', color: 'orange' },
 }
 
 export const STATUSES = Object.keys(STATUS_META) as JobStatus[]
 
-/** Statuses shown by default: everything still in play. */
+/** Statuses shown by default: everything still in play. Expired postings stay hidden. */
 export const ACTIVE_STATUSES: JobStatus[] = ['new', 'applied', 'emailed', 'exam', 'interview', 'offer']
 
 export const statusOptions = STATUSES.map((value) => ({ value, label: STATUS_META[value].label }))

@@ -7,8 +7,14 @@ import {
   reasonCounts, runState, skillDemand, staleSources, successRate,
 } from './analytics'
 
-const change = (id: string, to: StatusChange['to_status'], at: string, from: StatusChange['from_status'] = null): StatusChange =>
-  ({ job_source: 'jobstreet', job_external_id: id, from_status: from, to_status: to, changed_at: at })
+let historyId = 0
+const change = (
+  id: string, to: StatusChange['to_status'], at: string, from: StatusChange['from_status'] = null,
+  reverted_at: string | null = null,
+): StatusChange => ({
+  id: ++historyId, job_source: 'jobstreet', job_external_id: id, from_status: from, to_status: to, changed_at: at,
+  kind: 'change', reverted_at, undoable: true,
+})
 
 describe('jobsPerDay', () => {
   it('counts per day and source, including empty days', () => {
@@ -55,6 +61,21 @@ describe('funnel', () => {
     expect(Object.fromEntries(stages.map((s) => [s.key, s.count]))).toEqual({
       found: 5, reviewed: 4, applied: 3, heard: 2, interview: 1, offer: 1,
     })
+  })
+
+  it('ignores changes that were undone or corrected away', () => {
+    // A misclick into Offer, undone: the job only ever reached Applied.
+    const misclick = [
+      change('m', 'applied', '2026-10-01T00:00:00Z', 'new'),
+      change('m', 'offer', '2026-10-02T00:00:00Z', 'applied', '2026-10-02T00:01:00Z'),
+    ]
+    const { stages } = funnel([makeJob({ external_id: 'm', status: 'applied' })], misclick)
+    expect(Object.fromEntries(stages.map((s) => [s.key, s.count]))).toMatchObject({ applied: 1, heard: 0, offer: 0 })
+  })
+
+  it("doesn't count an expired job as reviewed", () => {
+    const { stages } = funnel([makeJob({ external_id: 'x', status: 'expired' })], [])
+    expect(stages.find((s) => s.key === 'reviewed')?.count).toBe(0)
   })
 
   it('counts an exam as hearing back', () => {

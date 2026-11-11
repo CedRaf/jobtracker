@@ -20,30 +20,81 @@ it('resumeOptions lists unknown last', () => {
   ]).map((o) => o.value)).toEqual(['web', 'ai', 'unknown'])
 })
 
-// The demo stands in for the database, so it must fill the dates like the trigger does.
-describe('demo application tracking', () => {
+// The demo stands in for the database, so it must follow the same status machine
+// (supabase/migrations/*_job_status_machine.sql; tested for real in scraper/tests/test_migrations.py).
+describe('demo status machine', () => {
   const newJob = async () => {
     const api = createDemoApi()
     const job = (await api.listJobs()).find((j) => j.status === 'new' && j.source !== 'manual')!
     return { api, job }
   }
 
-  it('dates the application and the first response, and guesses the channel', async () => {
+  it('dates the application and the first response, and defaults the channel', async () => {
     const { api, job } = await newJob()
-    const applied = await api.updateJob(job, { status: 'emailed' })
+    const { job: applied } = await api.changeStatus(job, 'new', 'applied')
     expect(applied.applied_at).not.toBeNull()
-    expect(applied.channel).toBe('direct_message')
+    expect(applied.channel).toBe('job_board')
     expect(applied.first_response_at).toBeNull()
-    const answered = await api.updateJob(job, { status: 'interview' })
+    const { job: answered } = await api.changeStatus(job, 'applied', 'interview')
     expect(answered.first_response_at).not.toBeNull()
   })
 
-  it('never overwrites what you set', async () => {
+  it('keeps the channel and date you give', async () => {
     const { api, job } = await newJob()
-    await api.updateJob(job, { channel: 'referral', applied_at: '2026-10-01T00:00:00Z' })
-    const saved = await api.updateJob(job, { status: 'applied' })
-    expect(saved.channel).toBe('referral')
+    const { job: saved } = await api.changeStatus(job, 'new', 'applied', {
+      channel: 'direct_message', appliedAt: '2026-10-01T00:00:00Z',
+    })
+    expect(saved.channel).toBe('direct_message')
     expect(saved.applied_at).toBe('2026-10-01T00:00:00Z')
+  })
+
+  it('refuses moves outside the table, and moves from a stale screen', async () => {
+    const { api, job } = await newJob()
+    await expect(api.changeStatus(job, 'new', 'rejected')).rejects.toThrow("can't move")
+    await expect(api.changeStatus(job, 'applied', 'interview')).rejects.toThrow('reload')
+  })
+
+  it('saves a skip with its reason, and clears it when the job comes back', async () => {
+    const { api, job } = await newJob()
+    const { job: skipped } = await api.changeStatus(job, 'new', 'skip', { skipReason: ' bond ' })
+    expect(skipped.skip_reason).toBe('bond')
+    const { job: back } = await api.changeStatus(job, 'skip', 'new')
+    expect(back.skip_reason).toBeNull()
+  })
+
+  it('undoes a change exactly, and the history marks it undone', async () => {
+    const { api, job } = await newJob()
+    const { historyId } = await api.changeStatus(job, 'new', 'applied')
+    const restored = await api.revertStatus(historyId)
+    expect(restored).toMatchObject({ status: 'new', applied_at: job.applied_at, channel: job.channel })
+    const row = (await api.listStatusHistory()).find((h) => h.id === historyId)!
+    expect(row.reverted_at).not.toBeNull()
+  })
+
+  it('only undoes the latest change, and not after an edit', async () => {
+    const { api, job } = await newJob()
+    const first = await api.changeStatus(job, 'new', 'applied')
+    const second = await api.changeStatus(job, 'applied', 'interview')
+    await expect(api.revertStatus(first.historyId)).rejects.toThrow('latest')
+    await api.updateJob(job, { first_response_at: '2030-01-01T00:00:00Z' })
+    await expect(api.revertStatus(second.historyId)).rejects.toThrow('edited')
+  })
+
+  it('corrects a status, replacing the one it corrects', async () => {
+    const { api, job } = await newJob()
+    await api.changeStatus(job, 'new', 'applied')
+    const offer = await api.changeStatus(job, 'applied', 'offer')
+    const { job: fixed, historyId } = await api.correctStatus(job, 'offer', 'interview')
+    expect(fixed.status).toBe('interview')
+    const history = await api.listStatusHistory()
+    expect(history.find((h) => h.id === offer.historyId)!.reverted_at).not.toBeNull()
+    expect(history.find((h) => h.id === historyId)!.kind).toBe('correction')
+  })
+
+  it("won't clear a date the status needs", async () => {
+    const { api, job } = await newJob()
+    await api.changeStatus(job, 'new', 'applied')
+    await expect(api.updateJob(job, { applied_at: null })).rejects.toThrow('day you applied')
   })
 
   it('logs a manual application with its first status in the history', async () => {
