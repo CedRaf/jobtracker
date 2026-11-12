@@ -434,8 +434,13 @@ def test_nothing_can_be_corrected_into_emailed(db):
 # ---- expiry -------------------------------------------------------------------------
 
 
+def expiry_started(conn, days_ago):
+    conn.execute("update public.job_expiry_start set since = now() - make_interval(days => %s)", [days_ago])
+
+
 def test_jobs_left_in_new_for_15_days_expire(db):
     with session(db, "postgres") as conn:
+        expiry_started(conn, 30)  # found after expiry started
         conn.execute("""update public.jobs set first_seen = now() - interval '16 days'
                         where external_id = 'new'""")
         assert conn.execute("select public.expire_stale_jobs()").fetchone()[0] == 1
@@ -446,8 +451,27 @@ def test_jobs_left_in_new_for_15_days_expire(db):
         move(conn, "new", "applied")
 
 
+def test_jobs_already_in_new_before_expiry_started_never_expire(db):
+    # Existing data is left alone: only jobs found after the migration expire.
+    with session(db, "postgres") as conn:
+        conn.execute("""update public.jobs set first_seen = now() - interval '400 days'
+                        where external_id = 'new'""")
+        assert conn.execute("select public.expire_stale_jobs()").fetchone()[0] == 0
+        assert job(conn, "new")["status"] == "new"
+
+
+def test_an_old_job_brought_back_to_new_can_expire(db):
+    with session(db, "postgres") as conn:
+        expiry_started(conn, 30)
+        conn.execute("""update public.jobs set first_seen = now() - interval '400 days',
+                                               status_changed_at = now() - interval '20 days'
+                        where external_id = 'new'""")
+        assert conn.execute("select public.expire_stale_jobs()").fetchone()[0] == 1
+
+
 def test_recent_jobs_do_not_expire(db):
     with session(db, "postgres") as conn:
+        expiry_started(conn, 30)
         conn.execute("""update public.jobs set first_seen = now() - interval '14 days'
                         where external_id = 'new'""")
         assert conn.execute("select public.expire_stale_jobs()").fetchone()[0] == 0

@@ -17,7 +17,7 @@ Settled in review. Each rollout is on its own branch and committed by you.
 
 - **Emailed** merges into Applied (the channel records email). Jobs already Emailed keep that status as legacy and move on like Applied ones; nothing new becomes Emailed.
 - **Withdrawn** is added for pulling out after applying.
-- **Expired** replaces `closed_at` (3.2): a job moves from New to Expired after **15 days** with no action, or (rollout 2) sooner, when the scraper sees the posting closed. Expired jobs are hidden by default and can still go to Applied or Skip.
+- **Expired** replaces `closed_at` (3.2): a job moves from New to Expired after **15 days** with no action, or (rollout 2) sooner, when the scraper sees the posting closed. Expired jobs are hidden by default and can still go to Applied or Skip. Only jobs found (or brought back to New) after rollout 1's migration runs expire; the existing New backlog is left alone.
 - **Undo** reverts a job's latest change at any time, as long as nothing has changed since; the toast is a shortcut to it. **Correct status** handles decisions made earlier: it allows any status and is logged as a correction, which the analytics count instead of the status it replaced.
 - **1.8:** option A. The first-response rule judges changes only, so logging an application at a later stage keeps working as before.
 - **1.9:** existing data is left alone. No backfill, and the new rules only judge rows as they change.
