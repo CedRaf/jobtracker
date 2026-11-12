@@ -13,6 +13,7 @@ import { StatusCell } from '../components/StatusControl'
 import { EntryLevelTag, FlagTags, ToneTag } from '../components/Tags'
 import { applyFilters, DEFAULT_FILTERS, isNewSince, type JobFilters } from '../lib/filters'
 import { flagTone } from '../lib/flags'
+import { runState } from '../lib/analytics'
 import { dateTime, dayTime, errorText, fromNow } from '../lib/format'
 import { entryRank, useEntryLevel, type EntryLevel } from '../lib/entryLevel'
 import { LastVisitContext } from '../lib/lastVisit'
@@ -211,14 +212,21 @@ function Freshness({ run, loaded, lastVisit }: { run: ScrapeRun | undefined; loa
   if (!loaded) return <Typography.Text type="secondary">{visit}</Typography.Text>
   if (!run) return <Typography.Text type="secondary">No scrape runs recorded yet · {visit}</Typography.Text>
   const when = dayTime(run.finished_at ?? run.started_at)
+  const state = runState(run)
   return (
     <Typography.Text type="secondary">
-      {run.error ? (
+      {state === 'failed' ? (
         <Tooltip title={run.error}>
           <Typography.Text type="danger">Last scrape failed {when}</Typography.Text>
         </Tooltip>
-      ) : run.finished_at ? (
-        <>Last scrape {when}{run.kept !== null && ` · ${run.kept} kept`}</>
+      ) : state === 'interrupted' ? (
+        <Typography.Text type="warning">Last scrape stopped before it finished {when}</Typography.Text>
+      ) : state === 'skipped' ? (
+        <>Site switched off (last checked {when})</>
+      ) : state === 'ok' ? (
+        <Tooltip title={run.warning && `Jobs saved, but: ${run.warning}`}>
+          <span>Last scrape {when}{run.kept !== null && ` · ${run.kept} kept`}{run.warning && ' (with a warning)'}</span>
+        </Tooltip>
       ) : (
         <>Scrape running since {when}</>
       )}

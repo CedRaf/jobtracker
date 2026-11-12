@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Alert, Button, Card, Col, Flex, Row, Segmented, Skeleton, Table, Tooltip, Typography } from 'antd'
 import type { TableColumnsType } from 'antd'
 import {
-  CheckCircleOutlined, CloseCircleOutlined, ExportOutlined, MinusCircleOutlined, SyncOutlined, WarningOutlined,
+  CheckCircleOutlined, CloseCircleOutlined, ExportOutlined, MinusCircleOutlined, PauseCircleOutlined, SyncOutlined, WarningOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import type { ScrapeRun } from '../data/types'
@@ -211,6 +211,7 @@ const STATE_TAGS: Record<RunState, { label: string; color: string; icon: React.R
   failed: { label: 'Failed', color: 'red', icon: <CloseCircleOutlined /> },
   running: { label: 'Running', color: 'blue', icon: <SyncOutlined spin /> },
   interrupted: { label: 'Interrupted', color: 'gold', icon: <MinusCircleOutlined /> },
+  skipped: { label: 'Skipped', color: 'default', icon: <PauseCircleOutlined /> },
 }
 
 const StateTag = ({ state }: { state: RunState }) => (
@@ -227,7 +228,20 @@ const runColumns = (site: ReturnType<typeof useSourceLabel>): TableColumnsType<S
     render: (iso: string) => <Tooltip title={dateTime(iso)}>{dayjs(iso).format('MMM D, HH:mm')}</Tooltip>,
   },
   ...(site.multi ? [{ title: 'Source', dataIndex: 'source', render: site.label }] : []),
-  { title: 'Result', key: 'state', render: (_, run) => <StateTag state={runState(run)} /> },
+  {
+    title: 'Result',
+    key: 'state',
+    render: (_, run) => (
+      <Flex gap={6} align="center">
+        <StateTag state={runState(run)} />
+        {run.warning && (
+          <Tooltip title={`Jobs saved, but: ${run.warning}`}>
+            <Typography.Text type="warning"><WarningOutlined aria-label={`Warning: ${run.warning}`} /></Typography.Text>
+          </Tooltip>
+        )}
+      </Flex>
+    ),
+  },
   { title: 'Found', dataIndex: 'found', align: 'right', responsive: ['md'], render: count },
   { title: 'Checked', dataIndex: 'evaluated', align: 'right', responsive: ['md'], render: count },
   { title: 'Kept', dataIndex: 'kept', align: 'right', render: count },
@@ -269,7 +283,7 @@ function ScraperHealth() {
   const rate = successRate(list)
   const next = nextStart(schedule, sources)
   const lastDispatch = dispatches.data?.[0]
-  const dispatchError = lastDispatch && dispatchProblem(lastDispatch)
+  const dispatchError = lastDispatch && dispatchProblem(lastDispatch, list)
 
   return (
     <Card
@@ -317,6 +331,16 @@ function ScraperHealth() {
                 {run?.error && (
                   <Typography.Text type="danger" className="clamp-2" style={{ fontSize: 12, maxWidth: 360 }}>
                     {run.error}
+                  </Typography.Text>
+                )}
+                {run?.warning && (
+                  <Typography.Text type="warning" className="clamp-2" style={{ fontSize: 12, maxWidth: 360 }}>
+                    Jobs saved, but: {run.warning}
+                  </Typography.Text>
+                )}
+                {run && runState(run) === 'interrupted' && (
+                  <Typography.Text type="secondary" style={{ fontSize: 12, maxWidth: 360 }}>
+                    Stopped before it finished (cancelled or timed out).
                   </Typography.Text>
                 )}
               </Flex>

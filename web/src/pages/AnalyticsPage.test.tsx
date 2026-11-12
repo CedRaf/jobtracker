@@ -28,6 +28,7 @@ it('shows the headline numbers and can show a chart as a table', async () => {
 it('shows when the next run is due and why the scheduler couldn’t start the last one', async () => {
   const api = createDemoApi()
   api.listDispatches = async () => [{
+    id: 1, status: 'failed',
     slot: new Date(Date.now() - 3_600_000).toISOString(), sources: ['jobstreet'], status_code: 401,
     error: '{"message":"Bad credentials"}', created_at: new Date(Date.now() - 3_600_000).toISOString(),
   }]
