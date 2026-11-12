@@ -44,13 +44,37 @@ US_HOURS = re.compile(
     r"\b(us|u\.s\.|usa|american|uk)[\s-]*(?:shift|hours|time ?zone|business hours)\b|"
     r"\b(?:est|pst|cst|edt|pdt) (?:hours|shift|time ?zone)\b", I)
 
-# "3+ years of experience", "minimum of five (5) years experience", "3-5 yrs exp"
-EXPERIENCE = re.compile(
-    r"\(?(\d{1,2})\)?\s*\+?\s*(?:(?:-|–|to)\s*\(?\d{1,2}\)?\s*)?\+?\s*"
-    r"(?:years?|yrs?)\b(?:\s+(?:of\s+)?[a-z/&,\-\s]{0,40}?)?\s*(?:experience|exp\b)", I)
-EXPERIENCE_AFTER = re.compile(
-    r"\b(?:experience|exp\.?)\b[^.\n]{0,30}?(?:at least|minimum(?: of)?|min\.?|over)?\s*"
-    r"\(?(\d{1,2})\)?\s*\+?\s*(?:years?|yrs?)\b", I)
+# ---- Years of experience ----
+# A number of years ("3", "three", "five (5)"), optionally a range or open end
+# ("3-5", "2 to 4", "4+", "3 or more"), then "years"/"yrs" (also "2-years'").
+# The first number is captured: a range's lower end is the minimum asked for.
+NUMBER_WORDS = {w: n for n, w in enumerate(
+    "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen".split(), 1)}
+_NUMBER = r"(?:\d{1,2}|" + "|".join(NUMBER_WORDS) + r")"
+_YEARS = (
+    r"(?<![\w.,$])\(?(" + _NUMBER + r")\)?(?:\s*\(\d{1,2}\))?"
+    r"(?:\s*(?:-|–|—|to)\s*\(?" + _NUMBER + r"\)?|\s+or\s+(?:more|above)|\s+and\s+above|\s+plus)?"
+    # "2-years' experience" counts, but "a four-year degree" / "2-year program" don't.
+    r"\s*\+?(?:\s*-\s*(?:years|yrs)|\s*(?:years?|yrs?))(?:['’]s?)?(?!\w)")
+_EXPERIENCE_WORD = r"\b(?:experience\w*|exp)\b"
+EXPERIENCE_PATTERNS = [
+    # "3+ years of experience", "2–3 years' experience", "4 years of professional
+    # full-stack development experience": the years, then "experience" in the same clause.
+    re.compile(_YEARS + r"[^.\n;]{0,60}?" + _EXPERIENCE_WORD, I),
+    # "Experience: minimum 2 years", "Professional Experience\n- 3-5 years".
+    re.compile(_EXPERIENCE_WORD + r"[^.;]{0,30}?(?:at least|minimum(?: of)?|min\.?|over)?\s*" + _YEARS, I),
+    # Requirement lines without the word "experience": "- 4+ years as a software
+    # developer", "2 to 3 years in a client-facing role", "Must have 3+ years of
+    # hands-on email work". Starts a (bulleted) line or follows a requirement word.
+    re.compile(
+        r"(?:^[ \t]*(?:[-–•·*▪●✓✔✅]+[ \t]*)?|\b(?:at least|minimum(?: of)?|min\.?|more than|must have|"
+        r"requires?|requiring|needs?)\s+)(?:(?:at least|minimum(?: of)?|more than|roughly|around|about)\s+)?"
+        + _YEARS +
+        r"\s+(?:in|as|of|on|with|building|developing|working|doing|writing|managing|leading|running|using|"
+        r"hands|professional|commercial|relevant|industry)\b", I | re.M),
+    # A level or skill with its years in brackets: "Senior Engineer (5–10 years)", "Java (3 years)".
+    re.compile(r"\(\s*" + _YEARS + r"\s*\)", I),
+]
 
 TRAINING_BOND = re.compile(
     r"\b(training bond|bond(?:ed)? (?:period|agreement|contract)|service agreement|"
@@ -181,9 +205,10 @@ def _foreign_hours(text):
 def required_years(text):
     """Highest 'minimum years of experience' mentioned, or None."""
     years = []
-    for rx in (EXPERIENCE, EXPERIENCE_AFTER):
+    for rx in EXPERIENCE_PATTERNS:
         for m in rx.finditer(text):
-            n = int(m.group(1))
+            word = m.group(1).lower()
+            n = NUMBER_WORDS[word] if word in NUMBER_WORDS else int(word)
             if 0 < n <= 15:
                 years.append(n)
     return max(years) if years else None
