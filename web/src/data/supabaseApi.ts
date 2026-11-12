@@ -18,11 +18,11 @@ const FILTERED_COLUMNS =
   'source,external_id,title,company,location,work_arrangements,search_terms,reason,url,first_seen'
 
 const RUN_COLUMNS =
-  'source,started_at,finished_at,found,evaluated,kept,filtered,expired,error,github_run_id,settings_version'
+  'source,status,warning,dispatch_id,started_at,finished_at,found,evaluated,kept,filtered,expired,error,github_run_id,settings_version'
 
 const SETTINGS_COLUMNS = 'version,settings,note,created_at'
 
-const DISPATCH_COLUMNS = 'slot,sources,status_code,error,created_at'
+const DISPATCH_COLUMNS = 'id,status,slot,sources,status_code,error,created_at'
 
 // `undoable` is the snapshot's status: null on rows from before Undo existed.
 const HISTORY_COLUMNS = 'id,job_source,job_external_id,from_status,to_status,changed_at,kind,reverted_at,undoable:before->>status'

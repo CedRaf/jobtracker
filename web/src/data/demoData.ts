@@ -317,8 +317,13 @@ export function demoScrapeRuns(): ScrapeRun[] {
     const evaluated = Math.round(found * (0.15 + rand() * 0.2))
     const kept = Math.round(evaluated * (0.1 + rand() * 0.15))
     const expired = Math.round(rand() * 2)
+    // One run's re-check of closed postings failed after its jobs were saved.
+    const warning = i === 4 ? 'Closed-posting re-check failed: HTTP 503 from the job board' : null
     return {
       source: 'jobstreet' as const,
+      status: failed ? 'failed' as const : interrupted ? 'interrupted' as const : 'ok' as const,
+      warning,
+      dispatch_id: null,
       started_at: ago(start),
       finished_at: interrupted ? null : ago(start - 0.05),
       found: done ? found : null,

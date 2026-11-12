@@ -121,18 +121,30 @@ export interface FilteredJob extends JobKey {
   first_seen: string
 }
 
+/**
+ * How a run went (scrape_runs.status). The scraper writes ok or failed; the
+ * workflow's last step marks a run it left behind interrupted; a switched-off
+ * site writes skipped.
+ */
+export type RunStatus = 'running' | 'ok' | 'failed' | 'interrupted' | 'skipped'
+
 /** One scraper run for one source (the scrape_runs table). Counts are null until it finishes. */
 export interface ScrapeRun {
   source: JobSource
+  status: RunStatus
+  /** A problem after the jobs were delivered: the run still counts as ok. */
+  warning: string | null
+  /** The scheduler request that started it; null for a run started by hand (or before this was recorded). */
+  dispatch_id: number | null
   started_at: string
-  /** Null while running, or forever if the run was cancelled or killed. */
+  /** Null while running (and on runs interrupted before this was recorded). */
   finished_at: string | null
   found: number | null
   evaluated: number | null
   kept: number | null
   filtered: number | null
   expired: number | null
-  /** Null = the run succeeded. */
+  /** Why the run failed; set exactly when status is failed. */
   error: string | null
   github_run_id: string | null
   /** The scraper settings version the run used; null = the built-in defaults. */
@@ -205,8 +217,17 @@ export interface SourceSchedule {
   times: string[]
 }
 
+/**
+ * Where a scheduler request stands (scraper_dispatches.status): waiting for
+ * GitHub's reply, accepted (GitHub queued the run), failed, lost (no reply in
+ * 6 hours), or never sent for lack of a token.
+ */
+export type DispatchStatus = 'pending' | 'accepted' | 'failed' | 'lost' | 'no_token'
+
 /** One request from the database scheduler (public.scraper_dispatches) to start a GitHub run. */
 export interface ScraperDispatch {
+  id: number
+  status: DispatchStatus
   /** The scheduled 15-minute slot; null for a run started by hand. */
   slot: string | null
   sources: JobSource[]
