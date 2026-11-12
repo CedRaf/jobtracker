@@ -367,10 +367,65 @@ def save_seen(seen, new_ids, retention_days, path=SEEN_FILE):
     path.write_text(json.dumps(seen, indent=0), encoding="utf-8")
 
 
-def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix=""):
+def seen_lookup(seen, known):
+    """
+    The seen check for a run: the database's listings and repost keys
+    (sinks.known_listings), which never age out, plus the cache file. Without
+    database credentials (known is None), the cache file alone.
+    """
+    if known is None:
+        return seen
+    ids, repost_keys = known
+    return {**seen, **dict.fromkeys(ids | repost_keys, "db")}
+
+
+# Jobs left in New this long expire by age (public.expire_stale_jobs), so the
+# closed-posting re-check only asks about younger ones.
+EXPIRE_AFTER_DAYS = 15
+
+
+def recheck_closed(cfg, secrets, source, session, collected, check_closed_fn):
+    """
+    Asks the site whether this source's jobs still in New (aged
+    recheck_after_days to EXPIRE_AFTER_DAYS) are still open, and moves the
+    closed ones to Expired. At most recheck_limit a run. Problems are logged;
+    the jobs were already delivered, so they never fail the run.
+    """
+    try:
+        ids = sinks.jobs_to_recheck(secrets, source, cfg.get("recheck_after_days", 3), EXPIRE_AFTER_DAYS)
+        ids = ids[:cfg.get("recheck_limit", 30)]
+        if not ids:
+            return 0
+        closed = check_closed_fn(session, cfg, ids, collected)
+        moved = sinks.expire_closed_jobs(secrets, source, closed)
+        log.info("Re-checked %d jobs in New: %d postings closed, %d moved to Expired",
+                 len(ids), len(closed), moved)
+        return moved
+    except Exception as e:
+        log.warning("Couldn't re-check the jobs in New for closed postings: %s", e)
+        return 0
+
+
+def check_closed(session, cfg, ids, collected):
+    """JobStreet: the ids whose details say the posting expired. A failed lookup is left for next run."""
+    closed = []
+    for job_id in ids:
+        try:
+            details = api.job_details(session, job_id)
+        except (api.JobStreetError, requests.RequestException, ValueError) as e:
+            log.warning("Re-check of %s failed: %s", job_id, e)
+            continue
+        pause(cfg)
+        if details and details.get("isExpired"):
+            closed.append(job_id)
+    return closed
+
+
+def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix="", check_closed_fn=None):
     """
     One full run for one job source: search, evaluate, send to the outputs,
-    then mark the jobs as seen. prefix starts the CSV file names.
+    mark the jobs as seen, then (with check_closed_fn) expire New jobs whose
+    posting closed. prefix starts the CSV file names.
     """
     cfg = load_json(CONFIG_FILE)
     secrets = load_secrets()
@@ -390,9 +445,13 @@ def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix=
         cfg = {**cfg, **settings_module.search_config(scraper_settings)}
         stats["settings_version"] = version
 
+        # Before searching: if the database can't be read, fail now rather than
+        # judge listings it already has again.
+        lookup = seen_lookup(seen, sinks.known_listings(secrets, source))
+
         session = api_module.new_session()
         jobs = collect_fn(session, cfg)
-        candidates = [j for j in jobs.values() if j["id"] not in seen]
+        candidates = [j for j in jobs.values() if j["id"] not in lookup]
         log.info("%d unique jobs found, %d not seen before", len(jobs), len(candidates))
         candidates, duplicates = drop_cross_site_duplicates(
             candidates, other_site_jobs(cfg, secrets, source))
@@ -401,7 +460,7 @@ def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix=
         if args.limit:
             candidates = candidates[:args.limit]
 
-        kept, filtered, expired = evaluate_fn(session, cfg, candidates, seen)
+        kept, filtered, expired = evaluate_fn(session, cfg, candidates, lookup)
         filtered = duplicates + filtered
         log.info("New jobs kept: %d, filtered out: %d, expired: %d",
                  len(kept), len(filtered), len(expired))
@@ -417,13 +476,16 @@ def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix=
             write_csvs(kept, filtered, prefix)
             log.warning("No credentials for any output (%s); wrote CSVs instead.", ", ".join(missing))
             return
-        sinks.deliver(outputs, missing, kept, filtered)
+        sinks.deliver(outputs, missing, kept, filtered, expired)
+        # The cache file: only a fallback now (runs without database credentials).
         save_seen(seen, [r["id"] for r in kept + filtered] + expired + [r["repost_key"] for r in kept],
                   cfg["seen_ids_retention_days"], seen_file)
+        if check_closed_fn:
+            recheck_closed(cfg, secrets, source, session, jobs, check_closed_fn)
 
 
 def run(args):
-    scrape(args, "jobstreet", api, collect, evaluate_jobs, SEEN_FILE)
+    scrape(args, "jobstreet", api, collect, evaluate_jobs, SEEN_FILE, check_closed_fn=check_closed)
 
 
 def main(run_fn=run, log_file=LOG_FILE, doc=__doc__):

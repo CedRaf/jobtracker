@@ -220,8 +220,20 @@ def evaluate_jobs(session, cfg, candidates, seen):
     return kept, filtered, expired
 
 
+def check_closed(session, cfg, ids, collected):
+    """
+    Himalayas has no details endpoint: a job counts as closed when this run's
+    search results list it with an expiry date that has passed. A job missing
+    from the results proves nothing, so it's left alone.
+    """
+    now = datetime.now(timezone.utc)
+    return [job_id for job_id in ids
+            if (job := collected.get(job_id)) and job["expires_at"] and job["expires_at"] < now]
+
+
 def run(args):
-    scraper.scrape(args, "himalayas", api, collect, evaluate_jobs, SEEN_FILE, prefix="himalayas_")
+    scraper.scrape(args, "himalayas", api, collect, evaluate_jobs, SEEN_FILE, prefix="himalayas_",
+                   check_closed_fn=check_closed)
 
 
 if __name__ == "__main__":

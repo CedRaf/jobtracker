@@ -148,8 +148,12 @@ class SupabaseClient:
     def select(self, table, params):
         return self._request("GET", table, params=params) or []
 
+    def rpc(self, function, params):
+        """Calls a database function (POST /rpc/<function>) and returns its result."""
+        return self._request("POST", f"rpc/{function}", json=params)
+
     def select_all(self, table, params, page_size=1000):
-        """select() past PostgREST's row limit, a page at a time."""
+        """select() past PostgREST's row limit, a page at a time (give an "order" so pages don't shift)."""
         rows = []
         while True:
             page = self.select(table, {**params, "limit": page_size, "offset": len(rows)})
@@ -176,6 +180,44 @@ def recent_jobs(secrets, days, exclude_source):
     # Filtered here rather than with source=neq.<source>: that fails on a
     # source the job_source enum doesn't have yet (migration not pushed).
     return [row for row in rows if row.get("source") != exclude_source]
+
+
+def known_listings(secrets, source):
+    """
+    What the database already knows about this site's listings, for the seen
+    check: (external ids in jobs, filtered_jobs and expired_listings; the repost
+    keys of its kept jobs). Nothing ages out of it, unlike the cache file.
+    None when there's no Supabase key to read with; a failed read raises, so a
+    run never judges old listings again by mistake.
+    """
+    client = supabase_client(secrets)
+    if not client:
+        return None
+    ids = set()
+    for table in ("jobs", "filtered_jobs", "expired_listings"):
+        rows = client.select_all(table, {"select": "external_id", "source": f"eq.{source}",
+                                         "order": "external_id.asc"})
+        ids.update(row["external_id"] for row in rows)
+    rows = client.select_all("jobs", {"select": "external_id,repost_key", "source": f"eq.{source}",
+                                      "repost_key": "not.is.null", "order": "external_id.asc"})
+    return ids, {row["repost_key"] for row in rows}
+
+
+def jobs_to_recheck(secrets, source, min_days, max_days):
+    """This site's jobs still in New, aged min_days to max_days, oldest first (public.jobs_to_recheck)."""
+    client = supabase_client(secrets)
+    if not client:
+        return []
+    return client.rpc("jobs_to_recheck", {
+        "p_source": source, "p_min_days": min_days, "p_max_days": max_days}) or []
+
+
+def expire_closed_jobs(secrets, source, external_ids):
+    """Moves these jobs from New to Expired, their posting having closed. Returns how many moved."""
+    client = supabase_client(secrets)
+    if not client or not external_ids:
+        return 0
+    return client.rpc("expire_closed_jobs", {"p_source": source, "p_external_ids": list(external_ids)}) or 0
 
 
 def load_settings(secrets):
@@ -215,11 +257,15 @@ class SupabaseSink:
         self.client = client
         self.source = source
 
-    def write(self, kept, filtered):
+    def write(self, kept, filtered, expired=()):
         jobs_added = self.client.insert(
             "jobs", [job_row(r, self.source) for r in kept], on_conflict="source,external_id")
         filtered_added = self.client.insert(
             "filtered_jobs", [filtered_row(r, self.source) for r in filtered],
+            on_conflict="source,external_id")
+        # Already closed when first seen: recorded so later runs skip them too.
+        self.client.insert(
+            "expired_listings", [{"source": self.source, "external_id": str(i)} for i in expired],
             on_conflict="source,external_id")
         log.info("Supabase updated: %d of %d jobs new; %d of %d filtered new",
                  jobs_added, len(kept), filtered_added, len(filtered))
@@ -259,16 +305,16 @@ def build_sinks(cfg, secrets, source):
     return sinks, missing
 
 
-def deliver(sinks, missing, kept, filtered):
+def deliver(sinks, missing, kept, filtered, expired=()):
     """
     Writes to every sink, even if an earlier one fails, then raises if any
-    failed or had no credentials. The caller only marks jobs as seen when this
-    returns, so failed jobs are retried next run.
+    failed or had no credentials. Jobs that fail to reach the database aren't
+    in it, so the next run judges them again.
     """
     errors = [f"{name}: credentials missing" for name in missing]
     for sink in sinks:
         try:
-            sink.write(kept, filtered)
+            sink.write(kept, filtered, expired)
         except Exception as e:
             log.exception("Writing to %s failed", sink.name)
             errors.append(f"{sink.name}: {e}")

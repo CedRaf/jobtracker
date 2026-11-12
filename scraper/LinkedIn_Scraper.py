@@ -38,7 +38,9 @@ LOG_FILE = ROOT / "logs" / "linkedin.log"
 # requests and a time budget: when it runs out, the run wraps up and sends
 # what it has; jobs it didn't get to aren't marked as seen, so the next run
 # checks them.
-LINKEDIN_DEFAULTS = {"max_pages_per_search": 3, "delay_seconds": 5, "time_budget_minutes": 20}
+LINKEDIN_DEFAULTS = {"max_pages_per_search": 3, "delay_seconds": 5, "time_budget_minutes": 20,
+                     # Each re-check is a page request: keep it small (see scraper.recheck_closed).
+                     "recheck_limit": 10}
 
 
 def linkedin_settings(cfg):
@@ -230,8 +232,30 @@ def evaluate_jobs(session, cfg, candidates, seen):
     return kept, filtered, expired
 
 
+def check_closed(session, cfg, ids, collected):
+    """
+    The ids whose LinkedIn page says it's no longer accepting applications (or
+    is gone). Stops at the first rate limit; unchecked jobs wait for next run.
+    """
+    closed = []
+    for job_id in ids[:linkedin_settings(cfg)["recheck_limit"]]:
+        try:
+            details = api.job_details(session, job_id)
+        except api.RateLimited:
+            log.warning("LinkedIn is rate-limiting requests; stopped the closed-posting re-check")
+            break
+        except (api.LinkedInError, requests.RequestException) as e:
+            log.warning("Re-check of %s failed: %s", job_id, e)
+            continue
+        pause(cfg)
+        if details["isExpired"]:
+            closed.append(job_id)
+    return closed
+
+
 def run(args):
-    scraper.scrape(args, "linkedin", api, collect, evaluate_jobs, SEEN_FILE, prefix="linkedin_")
+    scraper.scrape(args, "linkedin", api, collect, evaluate_jobs, SEEN_FILE, prefix="linkedin_",
+                   check_closed_fn=check_closed)
 
 
 if __name__ == "__main__":
