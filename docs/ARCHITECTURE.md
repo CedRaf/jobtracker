@@ -53,7 +53,7 @@ Everything is hosted on free tiers, and nothing runs on your own machine.
 The flow is `scraper.scrape()`, shared by both job boards:
 1. Load `config.json` (operational settings) and secrets (environment variables on GitHub Actions, or `scraper/secrets.json` locally).
 2. Load the **newest scraper settings version** from Supabase. If there's none, it can't be fetched, or it's invalid, use `default_settings.json`. The run never fails because of settings. **If this site is switched off** (`sources`), stop here, with no run-log row.
-3. Start a `scrape_runs` row (the run log).
+3. Start a `scrape_runs` row (the run log, status `running`, with the `dispatch_id` the scheduler passed). A switched-off site instead writes a `skipped` row and stops.
 4. Compile the rules from the settings (`rules.configure`).
 5. **Collect:** run every search (keyword × {home city, remote elsewhere if this site's switch is on}) and merge the results by job ID.
 6. Skip jobs already **seen**: every ID this site has in `jobs`, `filtered_jobs` or `expired_listings`, and the repost keys of its kept jobs, loaded from Supabase before the searches (`sinks.known_listings`; a failed read fails the run). Nothing ages out of it. The cache file (`data/*seen_ids.json`, carried by the GitHub Actions cache) is only used alongside it, and alone when there are no credentials.
@@ -196,7 +196,8 @@ The rules come from settings (section 4.5). How matching works is fixed in code:
   - Inserts in batches of 500 with `on_conflict=source,external_id` and `ignore-duplicates`. Your dashboard edits are never overwritten.
 - **`deliver()`:** writes to every output, then raises if any failed or had no credentials.
 - **`known_listings()`, `jobs_to_recheck()`, `expire_closed_jobs()`:** the seen list from the database, and the closed-posting re-check (`SupabaseClient.rpc` calls the database functions).
-- **`run_log()`:** a context manager that creates the `scrape_runs` row and finishes it with counts, or the error. Problems writing the log never fail the run. If the database lacks the `settings_version` column, it retries without it.
+- **`run_log()`:** a context manager that creates the `scrape_runs` row and finishes it with counts and a status: `failed` (with the error) if the run raised before delivering, else `ok`. A problem after delivery (the caller sets `stats["delivered"]`) becomes the row's `warning` instead of failing the run, as does a failed closed-posting re-check. Problems writing the log never fail the run: a start that couldn't be written is inserted whole at the end, and an end that couldn't be written goes to `data/pending_runs.json` for the workflow's last step. If the database lacks newer columns (`settings_version`, `status`, `warning`), it retries without them.
+- **`record_skipped()`** writes a switched-off site's `skipped` row; **`close_unfinished_runs()`** is the workflow's last step (`close_runs.py`): it replays the pending file, then marks this GitHub run's rows still `running` as `interrupted`.
 - **`load_settings()`:** loads the newest settings version (section 4.5) and falls back to the defaults.
 
 ### 4.7 Other scraper files
@@ -226,11 +227,11 @@ The rules come from settings (section 4.5). How matching works is fixed in code:
 | `filtered_jobs` | Dropped listings | Same key; `reason` text such as `"seniority title (Senior)"` |
 | `status_history` | Every status change | Written by the status functions (section 5.6) with a `kind` (`change`, `correction`, `expiry`), snapshots of the status fields `before` and `after` (for Undo) and `reverted_at` (undone or corrected away: the analytics skip it); feeds the funnel and response-time analytics |
 | `job_status_transitions` | The allowed status moves | `(from_status, to_status, system_only)`; `web/src/lib/transitions.ts` keeps a copy and a test checks they match |
-| `scrape_runs` | One row per run per source | found / evaluated / kept / filtered / expired, error (null = OK), `github_run_id`, `settings_version` |
+| `scrape_runs` | One row per run per source | `status` (`running`, `ok`, `failed`, `interrupted`, `skipped`), found / evaluated / kept / filtered / expired, `error` (set exactly when failed), `warning` (ok, but something after delivery failed), `github_run_id`, `dispatch_id` (the scheduler request that started it), `settings_version` |
 | `scraper_settings_versions` | Append-only settings versions | The newest is current; restoring inserts an old one again. Version 1 = defaults |
 | `resume_versions` | Resume variants (`key`, `label`) | Rows, not an enum, so you add one from the drawer's resume dropdown without a migration. `unknown`, `web` and `ai` are seeded |
 | `app_users` | Who may use the dashboard | Your auth user ID; no policies, so only the SQL editor or the secret key can change it |
-| `scraper_dispatches` | Every request the scheduler sent GitHub | `slot` (unique: one run per 15-minute slot; null when started by hand), `sources[]`, GitHub's `status_code` (204 = started) or `error`. App users can read it; only the database writes it |
+| `scraper_dispatches` | Every request the scheduler sent GitHub | `slot` (unique: one run per 15-minute slot; null when started by hand), `sources[]`, `status` (`pending`, `accepted`, `failed`, `lost`, `no_token`), GitHub's `status_code` (204 = accepted) or `error`. App users can read it; only the database writes it |
 
 Enums: `job_source` (`jobstreet`, `linkedin`, `himalayas`, and `manual` for applications you log yourself), `job_status` (`new`, `applied`, `emailed` (legacy: nothing moves into it), `exam`, `interview`, `offer`, `rejected`, `withdrawn`, `skip`, `expired`), `application_channel`, `role_type` and `work_setup` (each with `unknown`).
 
@@ -246,7 +247,8 @@ Enums: `job_source` (`jobstreet`, `linkedin`, `himalayas`, and `manual` for appl
 - **`pg_cron`** runs `dispatch_due_scrapers()` every 15 minutes (UTC; the functions convert to Manila).
 - **`scraper_due_sources(at)`** reads the newest settings version's `sources` (each site's saved values over `scraper_default_sources()`) and returns the switched-on sites with a time in `at`'s 15-minute slot.
 - **`dispatch_scrapers(sources, slot)`** inserts the log row first (a slot already used returns null, so it never starts two runs), reads the token from **Vault** (`github_scraper_token`) and sends GitHub's "run workflow" request through **`pg_net`** with `inputs.sources`. Callable by hand from the SQL editor to test.
-- **`record_dispatch_replies()`** copies pg_net's replies (kept about 6 hours) into the log on each tick.
+- **`record_dispatch_replies()`** copies pg_net's replies (kept about 6 hours) into the log on each tick, setting the status to `accepted` or `failed`; a request still `pending` after 6 hours becomes `lost`.
+- **The workflow gets the dispatch's id** (`inputs.dispatch_id`), and each run stores it, so the dashboard can tell a request GitHub accepted from a run that started (`*_run_and_dispatch_status.sql`).
 - All of these are `security definer` with `search_path = ''`; `execute` is revoked from `public`, `anon` and `authenticated`, so only the database and the service role can start runs.
 - **Tested** on a local Postgres 18 with stand-ins for `cron`, `net` and `vault` (time zones, slots, fallbacks, the one-run-per-slot guard, the missing-token message, the request body, replies and permissions). Supabase's real `pg_cron` and `pg_net` are only exercised once pushed: `docs/SCHEDULER_SETUP.md` Step 3.
 
@@ -365,7 +367,7 @@ Components never call Supabase directly. Everything goes through one interface.
   - Dropping a card on Skip asks for an optional reason.
   - **Input:** touch uses press-and-hold; on the keyboard, Enter opens a card and Space picks it up.
 - **Analytics (`AnalyticsPage.tsx`):**
-  - **Scraper health:** last run per site (marked when switched off), the next scheduled run, success rate over 14 days, a stale warning after 24 hours for scheduled sites only, and an error when the scheduler couldn't start the last run (`lib/schedule.ts` `dispatchProblem`); runs are OK / Failed / Running / Interrupted (unfinished after an hour).
+  - **Scraper health:** last run per site (marked when switched off), the next scheduled run, success rate over 14 days, a stale warning after 24 hours for scheduled sites only, and an error when the scheduler couldn't start the last run (`lib/schedule.ts` `dispatchProblem`: no token, refused, no reply, or accepted with no run started within 30 minutes). Runs show their stored status (OK, Failed, Running, Interrupted, Skipped), except a run still running after 35 minutes shows as Interrupted (its closing step never ran); an OK run with a warning says the jobs were saved and what failed after.
   - Headline tiles.
   - **What gets responses:** per channel, resume, role type or work setup (a switcher): applications, response rate (any outcome but no reply), interview rate and median days to a reply, each with its sample size, plus a total row. Groups under 10 applications (`MIN_SAMPLE`) are greyed and tagged "Not enough data". Applications count in the period by `applied_at`.
   - **After an exam or interview:** of the applications that reached each, how many went further, were rejected, are still waiting or ended otherwise.
@@ -430,10 +432,11 @@ Components never call Supabase directly. Everything goes through one interface.
   2. JobStreet;
   3. LinkedIn (30-minute step limit);
   4. Himalayas (10-minute step limit);
-  5. save the caches;
-  6. upload the logs.
+  5. close unfinished runs (`close_runs.py`, always runs): replay run-log writes that failed, and mark rows a cancelled or timed-out step left `running` as `interrupted`;
+  6. save the caches;
+  7. upload the logs.
 
-  Each site's step runs only if the `sources` input names it; blank (a manual run) means every site, and a switched-off site exits on its own.
+  Each site's step runs only if the `sources` input names it; blank (a manual run) means every site, and a switched-off site writes a skipped row and exits. The scheduler also passes `dispatch_id` (blank for manual runs).
 - Its secrets are `SUPABASE_URL` and `SUPABASE_SECRET_KEY`.
 - **`ci.yml`** runs on every push and pull request. The `scraper` job runs ruff + pytest; the `web` job runs `npm ci`, lint, Vitest and the build.
 

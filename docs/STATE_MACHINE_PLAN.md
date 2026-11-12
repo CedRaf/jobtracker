@@ -6,14 +6,14 @@ Every implicit state machine in jobtracker becomes explicit. Each one gets a sto
 
 ## Decisions and status (2026-11-11)
 
-Settled in review. Each rollout is on its own branch and committed by you.
+Settled in review. Each rollout is committed by you; rollouts 3 and 4 share a branch (both are small, and 4.2 writes to the table 3 reworks).
 
 | Rollout | Branch | Status |
 | --- | --- | --- |
-| 1. Job application | `state-machine/1-job-application` | Committed to `main` |
-| 2. Listing lifecycle (Machine 3) | `state-machine/2-listing-lifecycle` | Built, not committed |
-| 3. Scrape run (Machine 2) | — | Not started |
-| 4. Scheduler dispatch (Machine 4) | — | Not started |
+| 1. Job application | `state-machine/1-job-application` | Merged to `main` |
+| 2. Listing lifecycle (Machine 3) | `state-machine/2-listing-lifecycle` | Merged to `main` |
+| 3. Scrape run (Machine 2) | `state-machine/3-4-runs-and-dispatch` | Built, not committed |
+| 4. Scheduler dispatch (Machine 4) | `state-machine/3-4-runs-and-dispatch` | Built, not committed |
 
 - **Emailed** merges into Applied (the channel records email). Jobs already Emailed keep that status as legacy and move on like Applied ones; nothing new becomes Emailed.
 - **Withdrawn** is added for pulling out after applying.
@@ -22,6 +22,8 @@ Settled in review. Each rollout is on its own branch and committed by you.
 - **1.8:** option A. The first-response rule judges changes only, so logging an application at a later stage keeps working as before.
 - **1.9:** existing data is left alone. No backfill, and the new rules only judge rows as they change.
 - **Rollout 2 closed postings:** each run re-checks its site's jobs in New aged 3 to 15 days and moves closed ones to Expired. Like the age expiry, only jobs found after rollout 1 count. Himalayas has no details endpoint, so there a job counts as closed only when this run's results list it with a past expiry date.
+- **Rollout 3 interrupted runs:** a scraper that can't write its run's end saves it to a file; the workflow's last step replays that file, so only a step that was cancelled or timed out ends up interrupted (no need to tell interrupted from failed by the job's status). Existing scrape_runs and scraper_dispatches rows get the status the dashboard already showed for them.
+- **Rollout 4 "no run started":** runs from before dispatch ids existed are matched by site and time instead (one of the request's sites started within 30 minutes of it).
 - **To revisit later: reopening a rejection.** For now Rejected is final, and Correct status is the way out (for example, when a company comes back months later). Decide whether Rejected → Applied/Interview should be an allowed move.
 
 ## How to review

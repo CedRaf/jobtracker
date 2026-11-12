@@ -15,6 +15,10 @@ on:
         description: "Only evaluate this many new jobs (blank = all)"
         required: false
         default: ""
+      dispatch_id:
+        description: "Set by the scheduler (scraper_dispatches.id); leave blank"
+        required: false
+        default: ""
 
 concurrency:
   group: scraper
@@ -73,6 +77,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           LIMIT: ${{ inputs.limit }}
+          DISPATCH_ID: ${{ inputs.dispatch_id }}
         working-directory: scraper
         run: python scraper.py ${LIMIT:+--limit "$LIMIT"}
 
@@ -87,6 +92,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           LIMIT: ${{ inputs.limit }}
+          DISPATCH_ID: ${{ inputs.dispatch_id }}
         working-directory: scraper
         run: python LinkedIn_Scraper.py ${LIMIT:+--limit "$LIMIT"}
 
@@ -98,8 +104,20 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           LIMIT: ${{ inputs.limit }}
+          DISPATCH_ID: ${{ inputs.dispatch_id }}
         working-directory: scraper
         run: python Himalayas_Scraper.py ${LIMIT:+--limit "$LIMIT"}
+
+      # Closes this run's scrape_runs rows a scraper couldn't: replays failed
+      # run-log writes, and marks rows still running (a cancelled or timed-out
+      # step) as interrupted. Runs whatever happened above.
+      - name: Close unfinished runs
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        working-directory: scraper
+        run: python close_runs.py
 
       - name: Save seen job IDs
         if: always() && hashFiles('scraper/data/seen_ids.json') != ''
