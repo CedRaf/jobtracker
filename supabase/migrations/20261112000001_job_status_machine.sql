@@ -14,8 +14,7 @@
 --     snapshot, and marks the history row reverted (the analytics skip it).
 --   * correct_job_status() fixes a decision later: any status, logged as a
 --     correction that replaces the status it corrects.
---   * expire_stale_jobs() moves jobs left in New for 15 days to Expired (daily),
---     counting only jobs found (or back in New) after this migration ran.
+--   * expire_stale_jobs() moves jobs left in New for 15 days to Expired (daily).
 --   * A guard trigger refuses direct status updates (even by the service role)
 --     and refuses clearing a date or reason the status depends on.
 --
@@ -424,18 +423,8 @@ begin
 end
 $fn$;
 
--- When expiry started: this migration's run. Jobs already sitting in New
--- before it are existing data and never expire (plan 1.9: existing data is
--- left alone); only jobs found, or brought back to New, from then on do.
-create table public.job_expiry_start (
-  since timestamptz not null default now(),
-  single boolean primary key default true check (single)
-);
-insert into public.job_expiry_start default values;
-
 -- Moves jobs that sat in New for p_days (since they were found, or since they
--- last came back to New) to Expired, if that was after expiry started. Returns
--- how many. Runs daily (below).
+-- last came back to New) to Expired. Returns how many. Runs daily (below).
 create function public.expire_stale_jobs(p_days integer default 15)
 returns integer
 language plpgsql
@@ -452,7 +441,6 @@ begin
     select * from public.jobs
     where status = 'new'
       and coalesce(status_changed_at, first_seen) < now() - make_interval(days => p_days)
-      and coalesce(status_changed_at, first_seen) >= (select since from public.job_expiry_start)
     for update skip locked
   loop
     update public.jobs set status = 'expired'
@@ -474,11 +462,6 @@ $fn$;
 select cron.schedule('expire-stale-jobs', '15 16 * * *', 'select public.expire_stale_jobs()');
 
 -- ===== Row-level security and grants =======================================
-
--- Only the database reads it.
-alter table public.job_expiry_start enable row level security;
-revoke all on public.job_expiry_start from anon, authenticated;
-grant all on public.job_expiry_start to service_role;
 
 alter table public.job_status_transitions enable row level security;
 

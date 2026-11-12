@@ -451,6 +451,37 @@ def test_jobs_left_in_new_for_15_days_expire(db):
         move(conn, "new", "applied")
 
 
+def test_expiry_start_on_a_database_that_already_ran_rollout_1():
+    # As in production: 20261112000001 ran (and was used) before
+    # 20261112000002 existed. Expiry should start at rollout 1's first change.
+    name = f"jobtracker_test_{uuid.uuid4().hex[:12]}"
+    with psycopg.connect(DB_URL, autocommit=True) as admin:
+        admin.execute(f'create database "{name}"')
+    try:
+        with psycopg.connect(psycopg.conninfo.make_conninfo(DB_URL, dbname=name), autocommit=True) as conn:
+            conn.execute(SUPABASE_STAND_INS)
+            for path in MIGRATIONS:
+                if path.name.startswith("20261112000002"):
+                    break
+                users = conn.execute("select count(*) from public.app_users").fetchone()[0] \
+                    if path.name >= TRACKING else 1
+                if not users:
+                    insert_existing(conn)
+                migrate(conn, path)
+            conn.execute("select set_config('request.jwt.claim.sub', %s, false)", [APP_USER])
+            move(conn, "applied", "interview")
+            conn.execute("update public.status_history set changed_at = %s where before is not null",
+                         [at(20)])
+            conn.execute("update public.jobs set first_seen = %s where external_id = 'new'", [at(1)])
+            migrate(conn, MIGRATIONS[[p.name[:14] for p in MIGRATIONS].index("20261112000002")])
+            assert conn.execute("select since from public.job_expiry_start").fetchone()[0] == at(20)
+            # The backlog job, in New since Oct 1, stays there.
+            assert conn.execute("select public.expire_stale_jobs()").fetchone()[0] == 0
+    finally:
+        with psycopg.connect(DB_URL, autocommit=True) as admin:
+            admin.execute(f'drop database if exists "{name}" with (force)')
+
+
 def test_jobs_already_in_new_before_expiry_started_never_expire(db):
     # Existing data is left alone: only jobs found after the migration expire.
     with session(db, "postgres") as conn:
