@@ -56,15 +56,16 @@ The flow is `scraper.scrape()`, shared by both job boards:
 3. Start a `scrape_runs` row (the run log).
 4. Compile the rules from the settings (`rules.configure`).
 5. **Collect:** run every search (keyword × {home city, remote elsewhere if this site's switch is on}) and merge the results by job ID.
-6. Skip jobs already **seen** in earlier runs (`data/*seen_ids.json`, carried between runs by the GitHub Actions cache).
+6. Skip jobs already **seen**: every ID this site has in `jobs`, `filtered_jobs` or `expired_listings`, and the repost keys of its kept jobs, loaded from Supabase before the searches (`sinks.known_listings`; a failed read fails the run). Nothing ages out of it. The cache file (`data/*seen_ids.json`, carried by the GitHub Actions cache) is only used alongside it, and alone when there are no credentials.
    Then drop jobs **another site already has**: kept jobs from the other sources in the last `duplicate_lookback_days` (60) are loaded from Supabase and compared on a cleaned title + company key (section 4.8). Matches are filtered as `"duplicate posting (also on JobStreet)"`. If Supabase can't be read, this step is skipped.
 7. **Evaluate** each new job:
    1. A title-only check, with no request needed.
    2. Fetch the details.
    3. Description checks, skill scoring and flags.
    4. The result is kept, filtered (with a reason) or expired.
-8. **Deliver** to every output in `config.json` `"outputs"` (Supabase), or the source's own `"outputs"` if it has one. Every output is attempted even if one fails. Writes skip IDs that already exist, so retries are safe.
-9. Only if every output succeeded, mark the jobs as **seen**. Otherwise the next run retries them.
+8. **Deliver** to every output in `config.json` `"outputs"` (Supabase), or the source's own `"outputs"` if it has one: kept jobs, filtered jobs, and listings already closed when first seen (`expired_listings`). Every output is attempted even if one fails. Writes skip IDs that already exist, so retries are safe; jobs that didn't reach the database are judged again next run.
+9. Update the cache file.
+10. **Re-check closed postings** (section 5.7): this site's jobs still in New, aged 3 to 15 days, are checked with the site and the closed ones move to Expired. At most `recheck_limit` a run (30; LinkedIn 10). Problems are logged and never fail the run.
 10. Finish the run-log row with counts, or the error.
 
 ### What happens when you use the dashboard
@@ -193,16 +194,17 @@ The rules come from settings (section 4.5). How matching works is fixed in code:
   - New `sb_secret_…` keys go in the `apikey` header; legacy JWT keys also go in `Authorization`.
   - Retries connection errors and 5xx responses (5 s, then 20 s), but not 4xx.
   - Inserts in batches of 500 with `on_conflict=source,external_id` and `ignore-duplicates`. Your dashboard edits are never overwritten.
-- **`deliver()`:** writes to every output, then raises if any failed or had no credentials. Jobs aren't marked seen unless everything succeeded.
+- **`deliver()`:** writes to every output, then raises if any failed or had no credentials.
+- **`known_listings()`, `jobs_to_recheck()`, `expire_closed_jobs()`:** the seen list from the database, and the closed-posting re-check (`SupabaseClient.rpc` calls the database functions).
 - **`run_log()`:** a context manager that creates the `scrape_runs` row and finishes it with counts, or the error. Problems writing the log never fail the run. If the database lacks the `settings_version` column, it retries without it.
 - **`load_settings()`:** loads the newest settings version (section 4.5) and falls back to the defaults.
 
 ### 4.7 Other scraper files
 - **`import_sheet.py`:** the one-off import of the Sheet's CSV exports. By default it keeps jobs already in Supabase as they are; `--overwrite` replaces them. It preserves `first_seen`, statuses, notes and draft dates. It's already been run (154 jobs + 216 filtered).
-- **`config.json` keys:** `cebu_location` (JobStreet's location string), `sort`, `delay_seconds` (JobStreet pacing), `seen_ids_retention_days`, `duplicate_lookback_days`, `outputs`, `linkedin`, `himalayas`. A source's block may have its own `outputs`, which replaces the shared list for that source (`sinks.output_names`).
+- **`config.json` keys:** `cebu_location` (JobStreet's location string), `sort`, `delay_seconds` (JobStreet pacing), `seen_ids_retention_days` (the cache file only), `duplicate_lookback_days`, `recheck_after_days` (3), `recheck_limit` (30), `outputs`, `linkedin` (its own `recheck_limit`, 10), `himalayas`. A source's block may have its own `outputs`, which replaces the shared list for that source (`sinks.output_names`).
 
 ### 4.8 Duplicates across sites (`scraper.py`)
-- **Two checks.** Within one site, `repost_key()` (exact title + company, kept in the seen list) catches a job reposted under a new ID. Across sites, `cross_site_key()` compares new jobs with the jobs the *other* sites kept recently (`sinks.recent_jobs`), before any details are fetched.
+- **Two checks.** Within one site, `repost_key()` (exact title + company, stored in `jobs.repost_key` and loaded with the seen list) catches a job reposted under a new ID. Across sites, `cross_site_key()` compares new jobs with the jobs the *other* sites kept recently (`sinks.recent_jobs`), before any details are fetched.
 - **The cross-site key** strips what only says how a job is posted:
   - **Title:** parts split off by ` - `, ` | `, ` / `, `:` or brackets are dropped only if *every* word in them is posting noise (remote, full time, urgent hiring, a city, …) or a reference code (`1182`, `080426`, `REQ12345`). So "1182 - Junior Frontend Developer (Part-Time)" becomes "junior frontend developer", while "Developer (RPA)" and "Developer (QA)" stay different.
   - **Company:** a leading "the" and trailing suffixes (Inc, Corp, Ltd, Pty, LLC, Philippines, …) are dropped, so "Hunt St Pty Ltd" matches "Hunt St".
@@ -267,10 +269,18 @@ The plan and its decisions are in `docs/STATE_MACHINE_PLAN.md` (rollout 1).
 - **`change_job_status(source, external_id, to, expected_from, skip_reason, channel, applied_at)`** is the only way to move a job. It refuses moves outside the table and stale screens (`expected_from`). In the same statement it sets `applied_at` (the date given, else now) and the channel (given, else job board for scraped jobs) on a move to Applied, `first_response_at` on the first move to Exam, Interview, Offer or Rejected, and `skip_reason` with a skip (cleared on Skip → New). It writes the history row with before/after snapshots and returns `{history_id, job}`.
 - **`revert_status_change(history_id)`** (Undo) restores the snapshot exactly and marks the row reverted. Only a job's latest change, and only while its status fields are as that change left them; rows from before this migration have no snapshot. There's no time limit: the toast is a shortcut, and the drawer keeps an Undo button.
 - **`correct_job_status(source, external_id, to, expected_from, skip_reason)`** (Correct status) sets any status but Emailed, marks the change that led to the current status reverted, and makes the fields fit: New/Skip/Expired clear both dates, Applied clears the response, Exam/Interview/Offer/Rejected fill both. It can be undone like a change, which brings back the row it replaced.
-- **`expire_stale_jobs(days = 15)`** moves jobs left in New for 15 days (since found, or since they came back to New) to Expired, counting only jobs found or back in New after the migration ran (`job_expiry_start`), so the backlog from before stays in New; `pg_cron` runs it daily at 00:15 Manila. Rollout 2 also expires jobs whose posting closed.
+- **`expire_stale_jobs(days = 15)`** moves jobs left in New for 15 days (since found, or since they came back to New) to Expired, counting only jobs found or back in New after the migration ran (`job_expiry_start`), so the backlog from before stays in New; `pg_cron` runs it daily at 00:15 Manila. Jobs whose posting closed expire sooner (section 5.7).
 - **`jobs_guard_changes`** refuses any status update outside these functions (even the service role's or the SQL editor's), clearing `applied_at` once applied, clearing `first_response_at` once they replied, and a skip reason on a job that isn't skipped. It only judges the change being made, so existing rows that break the rules can still be edited.
 - **Existing data is left as it is:** nothing is backfilled. Jobs already Emailed keep that status and move on like Applied ones.
 - **Open question:** whether Rejected should ever reopen (see the plan). Until then, Correct status covers it.
+
+### 5.7 The listing lifecycle (`*_listing_lifecycle.sql`)
+Rollout 2 of `docs/STATE_MACHINE_PLAN.md`.
+- **The database is the seen list:** see section 3, step 6. `expired_listings` (service role only) records listings that had already closed when first seen, which used to live only in the cache file.
+- **One table per listing:** `listing_in_one_table()` (before-insert triggers on `jobs` for scraped jobs, and on `filtered_jobs`) skips an insert whose key the other table already has, like a duplicate, so a listing is never both kept and filtered.
+- **Closed postings:** `jobs_to_recheck(source, min_days = 3, max_days = 15)` lists the site's jobs in New aged 3 to 15 days (older ones expire by age); `expire_closed_jobs(source, ids)` moves those still in New to Expired, logged as an `expiry`. Both count only jobs found (or back in New) after rollout 1 (`job_expiry_start`), and only the service role may call them. Each site decides what "closed" means: JobStreet's details say `isExpired`; LinkedIn's page says it no longer accepts applications, or is gone (stops at a rate limit); Himalayas has no details endpoint, so only a job listed in this run's results with a past expiry date counts. A failed lookup or a job missing from results is left for the next run.
+- **Existing data is left as it is,** including listings already in both tables. To list them:
+  `select j.source, j.external_id, j.title, j.status from jobs j join filtered_jobs f using (source, external_id);`
 
 ### 5.6 Changing the schema
 - Add a new file in `supabase/migrations/` (never edit an applied one), run `npx supabase db push --remote`, then `npx supabase migration list --remote` to confirm.
@@ -462,7 +472,8 @@ Counts are test **cases**; table-driven tests count each input. CI runs both on 
 - **`test_sinks.py`:** row conversion, the REST client (headers, batching, retries), outputs, delivery and the run log. All against fake HTTP, with no network.
 - **`test_linkedin.py`:** 429 handling, `Retry-After`, stopping early, the time budget and page limits.
 - **`test_duplicates.py`:** the cross-site key (same jobs formatted differently must match; different roles must not), the lookup and its fallbacks, and duplicates being filtered before evaluation in a run.
-- **`test_migrations.py`:** applies every migration to a real Postgres (with stand-ins for Supabase's `auth` schema, roles, `pg_cron`, `pg_net` and Vault), inserting existing jobs before the application-tracking migrations so the backfill runs on realistic rows. Covers the backfill, the triggers, the status machine (allowed moves, Undo, corrections, expiry, the guards, and the transition table matching `transitions.ts`), logged applications, resume versions, the dashboard's TypeScript unions matching the enums, and what stays locked (scraper columns, history, outsiders, `anon`). Runs only when `TEST_DATABASE_URL` is set: CI starts a `postgres` service; locally, any Postgres 15+ where you may create databases (each run creates and drops its own).
+- **`test_migrations.py`:** applies every migration to a real Postgres (with stand-ins for Supabase's `auth` schema, roles, `pg_cron`, `pg_net` and Vault), inserting existing jobs before the application-tracking migrations so the backfill runs on realistic rows. Covers the backfill, the triggers, the status machine (allowed moves, Undo, corrections, expiry, the guards, and the transition table matching `transitions.ts`), the listing lifecycle (one table per listing, the re-check window, expiring closed postings), logged applications, resume versions, the dashboard's TypeScript unions matching the enums, and what stays locked (scraper columns, history, outsiders, `anon`). Runs only when `TEST_DATABASE_URL` is set: CI starts a `postgres` service; locally, any Postgres 15+ where you may create databases (each run creates and drops its own).
+- **`test_listings.py`:** the seen check from the database (cache evicted, repost keys, a failed read), the closed-posting re-check per site (limits, rate limits, failures), and the sink calls.
 - **`test_himalayas.py`:** the client (query, 429, bad responses), field mapping, the country/timezone eligibility rule, paging, stopping early, expired jobs and duplicates.
 - **Dashboard logic** (`lib/*.test.ts`): filters, analytics, entry-level matching, rule validation, flags, reasons, rule links, the email template, last visit, and (in `data/`) the query cache and auth clearing.
 - **Dashboard pages** (`pages/*.test.tsx`): render real pages on demo data and click through them. Multi-site behaviour uses `test/twoSiteApi.ts`, which relabels some demo jobs as a second site.

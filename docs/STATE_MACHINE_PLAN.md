@@ -10,8 +10,8 @@ Settled in review. Each rollout is on its own branch and committed by you.
 
 | Rollout | Branch | Status |
 | --- | --- | --- |
-| 1. Job application | `state-machine/1-job-application` | Built, not committed |
-| 2. Listing lifecycle (Machine 3) | — | Not started |
+| 1. Job application | `state-machine/1-job-application` | Committed to `main` |
+| 2. Listing lifecycle (Machine 3) | `state-machine/2-listing-lifecycle` | Built, not committed |
 | 3. Scrape run (Machine 2) | — | Not started |
 | 4. Scheduler dispatch (Machine 4) | — | Not started |
 
@@ -21,6 +21,7 @@ Settled in review. Each rollout is on its own branch and committed by you.
 - **Undo** reverts a job's latest change at any time, as long as nothing has changed since; the toast is a shortcut to it. **Correct status** handles decisions made earlier: it allows any status and is logged as a correction, which the analytics count instead of the status it replaced.
 - **1.8:** option A. The first-response rule judges changes only, so logging an application at a later stage keeps working as before.
 - **1.9:** existing data is left alone. No backfill, and the new rules only judge rows as they change.
+- **Rollout 2 closed postings:** each run re-checks its site's jobs in New aged 3 to 15 days and moves closed ones to Expired. Like the age expiry, only jobs found after rollout 1 count. Himalayas has no details endpoint, so there a job counts as closed only when this run's results list it with a past expiry date.
 - **To revisit later: reopening a rejection.** For now Rejected is final, and Correct status is the way out (for example, when a company comes back months later). Decide whether Rejected → Applied/Interview should be an allowed move.
 
 ## How to review
