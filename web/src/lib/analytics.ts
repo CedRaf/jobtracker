@@ -1,5 +1,5 @@
 import dayjs from 'dayjs'
-import type { FilteredJob, Job, JobSource, JobStatus, ScrapeRun, StatusChange } from '../data/types'
+import type { FilteredJob, Job, JobSource, JobStatus, RunStatus, ScrapeRun, StatusChange } from '../data/types'
 import { jobKeyString } from '../data/types'
 import { groupByReason } from './reasons'
 import { liveHistory } from './transitions'
@@ -259,26 +259,32 @@ export const reasonCounts = (filtered: FilteredJob[]) =>
 
 // ---- Scraper health ---------------------------------------------------------------
 
-export type RunState = 'ok' | 'failed' | 'running' | 'interrupted'
+export type RunState = RunStatus
 
-/** A run that hasn't finished after this long was cancelled or killed. */
-const RUN_TIMEOUT = 60 * 60_000
+/**
+ * The workflow's last step closes a run it left running, so a run still
+ * running after this long lost even that step (the runner died): show it as
+ * interrupted. The longest step's timeout is 30 minutes.
+ */
+const RUN_TIMEOUT = 35 * 60_000
 
-export function runState(run: Pick<ScrapeRun, 'finished_at' | 'error' | 'started_at'>, now = Date.now()): RunState {
-  if (run.error) return 'failed'
-  if (run.finished_at) return 'ok'
-  return now - Date.parse(run.started_at) > RUN_TIMEOUT ? 'interrupted' : 'running'
+/** The run's stored status, except a run left running past RUN_TIMEOUT is interrupted. */
+export function runState(run: Pick<ScrapeRun, 'status' | 'started_at'>, now = Date.now()): RunState {
+  return run.status === 'running' && now - Date.parse(run.started_at) > RUN_TIMEOUT ? 'interrupted' : run.status
 }
 
-/** Sources with no run started in the last 24 hours (the scraper runs twice a day). */
+/**
+ * Sources with no run started in the last 24 hours (the scraper runs twice a
+ * day). A skipped run (site switched off) doesn't count as running.
+ */
 export function staleSources(runs: ScrapeRun[], sources: JobSource[], now = Date.now()): JobSource[] {
   return sources.filter(
-    (source) => !runs.some((r) => r.source === source && now - Date.parse(r.started_at) < DAY),
+    (source) => !runs.some((r) => r.source === source && r.status !== 'skipped' && now - Date.parse(r.started_at) < DAY),
   )
 }
 
-/** Share of runs in the list that finished without an error. */
+/** Share of finished runs that ended ok (running and skipped runs don't count). */
 export function successRate(runs: ScrapeRun[], now = Date.now()) {
-  const done = runs.filter((r) => runState(r, now) !== 'running')
+  const done = runs.filter((r) => !['running', 'skipped'].includes(runState(r, now)))
   return done.length ? done.filter((r) => runState(r, now) === 'ok').length / done.length : null
 }

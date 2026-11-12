@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { DEFAULT_SETTINGS } from '../data/defaultSettings'
 import { useSettingsVersions } from '../data/hooks'
-import type { JobSource, ScraperDispatch, SourceSchedule } from '../data/types'
+import type { JobSource, ScrapeRun, ScraperDispatch, SourceSchedule } from '../data/types'
 import { normalizeSettings, toMinutes } from './scraperSettings'
 
 // Schedules are Manila time, which has no daylight saving: always UTC+8.
@@ -54,16 +54,42 @@ export const scheduledSources = (schedules: Record<JobSource, SourceSchedule>, s
  */
 const REPLY_WAIT_MS = 20 * 60_000
 
+/** GitHub usually starts an accepted run within a minute or two; after this, it didn't. */
+const START_WAIT_MS = 30 * 60_000
+
+/**
+ * Whether a run started for this request: one that records the request's id,
+ * or (for runs before ids were recorded) one of its sites started within
+ * START_WAIT_MS of it.
+ */
+const runStarted = (dispatch: ScraperDispatch, runs: Pick<ScrapeRun, 'source' | 'started_at' | 'dispatch_id'>[]) =>
+  runs.some((r) => r.dispatch_id === dispatch.id || (dispatch.sources.includes(r.source)
+    && Date.parse(r.started_at) >= Date.parse(dispatch.created_at) - 60_000
+    && Date.parse(r.started_at) <= Date.parse(dispatch.created_at) + START_WAIT_MS))
+
 /**
  * Why the scheduler's request didn't start a run, in plain words, or null if
- * it did (or its reply is still on the way).
+ * it did (or GitHub's reply or the run is still on the way).
  */
-export function dispatchProblem(dispatch: ScraperDispatch, now = Date.now()): string | null {
-  if (dispatch.error) return dispatch.error
-  if (dispatch.status_code === null) {
-    return now - Date.parse(dispatch.created_at) > REPLY_WAIT_MS ? 'GitHub never replied to the request.' : null
+export function dispatchProblem(
+  dispatch: ScraperDispatch, runs: Pick<ScrapeRun, 'source' | 'started_at' | 'dispatch_id'>[], now = Date.now(),
+): string | null {
+  const age = now - Date.parse(dispatch.created_at)
+  switch (dispatch.status) {
+    case 'no_token':
+      return dispatch.error ?? 'No GitHub token is set up.'
+    case 'failed':
+      return dispatch.error
+        ?? (dispatch.status_code ? `GitHub replied HTTP ${dispatch.status_code}.` : 'GitHub refused the request.')
+    case 'lost':
+      return 'GitHub never replied to the request.'
+    case 'pending':
+      return age > REPLY_WAIT_MS ? 'GitHub never replied to the request.' : null
+    case 'accepted':
+      return age > START_WAIT_MS && !runStarted(dispatch, runs)
+        ? 'GitHub accepted the request, but no run started within 30 minutes.'
+        : null
   }
-  return dispatch.status_code >= 200 && dispatch.status_code < 300 ? null : `GitHub replied HTTP ${dispatch.status_code}.`
 }
 
 /** The current settings' schedule (or the defaults while loading or when nothing is saved). */

@@ -217,26 +217,35 @@ it('reasonCounts groups filtered jobs by rule', () => {
 describe('scraper health', () => {
   const now = Date.parse('2026-10-22T12:00:00Z')
   const run = (overrides: Partial<ScrapeRun>): ScrapeRun => ({
-    source: 'jobstreet', started_at: '2026-10-22T03:00:00Z', finished_at: '2026-10-22T03:03:00Z',
-    found: 100, evaluated: 20, kept: 3, filtered: 17, expired: 0, error: null, github_run_id: null,
-    settings_version: 1, ...overrides,
+    source: 'jobstreet', status: 'ok', warning: null, dispatch_id: null, started_at: '2026-10-22T03:00:00Z',
+    finished_at: '2026-10-22T03:03:00Z', found: 100, evaluated: 20, kept: 3, filtered: 17, expired: 0, error: null,
+    github_run_id: null, settings_version: 1, ...overrides,
   })
+  const running = (started_at: string) => run({ status: 'running', started_at, finished_at: null })
 
-  it('tells finished, failed, running and interrupted runs apart', () => {
+  it('reads the stored status', () => {
     expect(runState(run({}), now)).toBe('ok')
-    expect(runState(run({ error: 'boom' }), now)).toBe('failed')
-    expect(runState(run({ started_at: '2026-10-22T11:50:00Z', finished_at: null }), now)).toBe('running')
-    expect(runState(run({ finished_at: null }), now)).toBe('interrupted')
+    expect(runState(run({ status: 'failed', error: 'boom' }), now)).toBe('failed')
+    expect(runState(run({ status: 'interrupted' }), now)).toBe('interrupted')
+    expect(runState(run({ status: 'skipped' }), now)).toBe('skipped')
+    expect(runState(run({ warning: 're-check failed' }), now)).toBe('ok') // jobs saved: still ok
   })
 
-  it('flags sources with no run in the last 24 hours', () => {
+  it('shows a run left running past 35 minutes as interrupted', () => {
+    expect(runState(running('2026-10-22T11:30:00Z'), now)).toBe('running')
+    expect(runState(running('2026-10-22T11:20:00Z'), now)).toBe('interrupted')
+  })
+
+  it('flags sources with no run in the last 24 hours; a skipped run is no run', () => {
     expect(staleSources([run({}), run({ source: 'linkedin', started_at: '2026-10-20T03:00:00Z' })], ['jobstreet', 'linkedin'], now))
       .toEqual(['linkedin'])
+    expect(staleSources([run({ status: 'skipped' })], ['jobstreet'], now)).toEqual(['jobstreet'])
   })
 
-  it('computes the success rate, ignoring runs still going', () => {
-    expect(successRate([run({}), run({ error: 'boom' }), run({ started_at: '2026-10-22T11:59:00Z', finished_at: null })], now))
-      .toBe(0.5)
+  it('computes the success rate, ignoring runs still going and skipped ones', () => {
+    expect(successRate([
+      run({}), run({ status: 'failed', error: 'boom' }), running('2026-10-22T11:59:00Z'), run({ status: 'skipped' }),
+    ], now)).toBe(0.5)
     expect(successRate([], now)).toBeNull()
   })
 })
