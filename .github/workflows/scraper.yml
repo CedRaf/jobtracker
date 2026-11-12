@@ -41,8 +41,9 @@ jobs:
 
       - run: pip install -r scraper/requirements.txt
 
-      # Runners start empty each time; carry the "already seen" job list over
-      # between runs so job details aren't re-fetched. (Supabase skips duplicates anyway.)
+      # Runners start empty each time. The seen list comes from Supabase
+      # (sinks.known_listings); this cache file is only used alongside it, and
+      # alone for runs without credentials.
       - name: Restore seen job IDs
         uses: actions/cache/restore@v4
         with:
