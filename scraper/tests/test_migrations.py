@@ -760,9 +760,108 @@ def test_closed_postings_from_the_backlog_are_left_alone(db):
 
 @pytest.mark.parametrize("call", [
     "select public.jobs_to_recheck('jobstreet')",
+    "select public.dispatch_scrapers(array['jobstreet'])",
+    "select public.record_dispatch_replies()",
     "select public.expire_closed_jobs('jobstreet', array['new'])",
 ])
-def test_only_the_scraper_rechecks(db, call):
+def test_only_the_scraper_and_the_scheduler_call_these(db, call):
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         with session(db, "authenticated", APP_USER) as conn:
             conn.execute(call)
+
+
+# ---- scrape runs and dispatches (rollouts 3 and 4) ------------------------------------
+
+
+def new_run(conn, **values):
+    columns = ", ".join(["source", *values])
+    params = ", ".join(["'jobstreet'", *["%s"] * len(values)])
+    return conn.execute(f"insert into public.scrape_runs ({columns}) values ({params}) returning id, status",
+                        list(values.values())).fetchone()
+
+
+def test_a_run_starts_running(db):
+    with session(db, "service_role") as conn:
+        assert new_run(conn)[1] == "running"
+
+
+@pytest.mark.parametrize("values", [
+    {"status": "failed"},                 # failed without saying why
+    {"status": "ok", "error": "boom"},    # an error on a run that isn't failed
+    {"status": "done"},                   # not a status
+])
+def test_run_statuses_are_checked(db, values):
+    with pytest.raises(psycopg.errors.CheckViolation):
+        with session(db, "service_role") as conn:
+            new_run(conn, **values)
+
+
+def test_a_run_records_the_dispatch_that_started_it(db):
+    with session(db, "service_role") as conn:
+        dispatch = conn.execute("""insert into public.scraper_dispatches (sources) values ('{jobstreet}')
+                                   returning id""").fetchone()[0]
+        run_id, _ = new_run(conn, dispatch_id=dispatch, status="ok", warning="re-check failed")
+        row = conn.execute("select dispatch_id, warning from public.scrape_runs where id = %s",
+                           [run_id]).fetchone()
+        assert row == (dispatch, "re-check failed")
+
+
+def capture_requests(conn):
+    """Swaps pg_net's stand-in for one that keeps the request body (this transaction only)."""
+    conn.execute("create table net.sent (id bigint generated always as identity, body jsonb)")
+    conn.execute("""create or replace function net.http_post(url text, body jsonb, headers jsonb,
+                                                           timeout_milliseconds integer)
+                    returns bigint language sql as
+                    $$ insert into net.sent (body) values (body) returning id $$""")
+
+
+def dispatch_row(conn, dispatch_id):
+    return conn.execute("""select status, request_id, status_code, error from public.scraper_dispatches
+                           where id = %s""", [dispatch_id]).fetchone()
+
+
+def test_a_dispatch_without_a_token_says_so(db):
+    with session(db, "postgres") as conn:
+        dispatch_id = conn.execute("select public.dispatch_scrapers(array['jobstreet'])").fetchone()[0]
+        status, _, _, error = dispatch_row(conn, dispatch_id)
+        assert status == "no_token" and error.startswith("No GitHub token")
+
+
+def test_a_dispatch_sends_its_id_to_the_workflow_and_waits_for_the_reply(db):
+    with session(db, "postgres") as conn:
+        capture_requests(conn)
+        conn.execute("insert into vault.decrypted_secrets values ('github_scraper_token', 't')")
+        dispatch_id = conn.execute(
+            "select public.dispatch_scrapers(array['jobstreet', 'linkedin'])").fetchone()[0]
+        status, request_id, _, _ = dispatch_row(conn, dispatch_id)
+        assert status == "pending"
+        body = conn.execute("select body from net.sent where id = %s", [request_id]).fetchone()[0]
+        assert body["inputs"] == {"sources": "jobstreet,linkedin", "dispatch_id": str(dispatch_id)}
+
+
+@pytest.mark.parametrize("reply, expected", [
+    ((204, None, None), ("accepted", 204, None)),
+    ((401, '{"message":"Bad credentials"}', None), ("failed", 401, '{"message":"Bad credentials"}')),
+    ((None, None, "Timeout of 10000 ms reached"), ("failed", None, "Timeout of 10000 ms reached")),
+])
+def test_replies_settle_a_dispatch(db, reply, expected):
+    with session(db, "postgres") as conn:
+        capture_requests(conn)
+        conn.execute("insert into vault.decrypted_secrets values ('github_scraper_token', 't')")
+        dispatch_id = conn.execute("select public.dispatch_scrapers(array['jobstreet'])").fetchone()[0]
+        request_id = dispatch_row(conn, dispatch_id)[1]
+        conn.execute("insert into net._http_response values (%s, %s, %s, %s)", [request_id, *reply])
+        conn.execute("select public.record_dispatch_replies()")
+        status, _, status_code, error = dispatch_row(conn, dispatch_id)
+        assert (status, status_code, error) == expected
+
+
+def test_a_dispatch_unanswered_for_6_hours_is_lost(db):
+    with session(db, "postgres") as conn:
+        stale = conn.execute("""insert into public.scraper_dispatches (sources, request_id, created_at)
+                                values ('{jobstreet}', 77, now() - interval '7 hours')
+                                returning id""").fetchone()[0]
+        recent = conn.execute("""insert into public.scraper_dispatches (sources, request_id)
+                                 values ('{jobstreet}', 78) returning id""").fetchone()[0]
+        conn.execute("select public.record_dispatch_replies()")
+        assert dispatch_row(conn, stale)[0] == "lost" and dispatch_row(conn, recent)[0] == "pending"

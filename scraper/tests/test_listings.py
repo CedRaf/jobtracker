@@ -105,12 +105,14 @@ def test_the_recheck_is_limited_per_run(monkeypatch):
     assert asked == ["0", "1", "2", "3", "4"]
 
 
-def test_a_failed_recheck_never_fails_the_run(monkeypatch):
+def test_a_failed_recheck_never_fails_the_run_but_leaves_a_warning(monkeypatch):
     def broken(*a):
         raise RuntimeError("down")
 
     monkeypatch.setattr(sinks, "jobs_to_recheck", broken)
-    assert scraper.recheck_closed({}, {}, "jobstreet", None, {}, None) == 0
+    stats = {}
+    assert scraper.recheck_closed({}, {}, "jobstreet", None, {}, None, stats) == 0
+    assert stats == {"warning": "Closed-posting re-check failed: down"}
 
 
 def test_jobstreet_asks_the_details_and_skips_failures(monkeypatch):

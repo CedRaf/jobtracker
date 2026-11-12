@@ -384,12 +384,13 @@ def seen_lookup(seen, known):
 EXPIRE_AFTER_DAYS = 15
 
 
-def recheck_closed(cfg, secrets, source, session, collected, check_closed_fn):
+def recheck_closed(cfg, secrets, source, session, collected, check_closed_fn, stats=None):
     """
     Asks the site whether this source's jobs still in New (aged
     recheck_after_days to EXPIRE_AFTER_DAYS) are still open, and moves the
-    closed ones to Expired. At most recheck_limit a run. Problems are logged;
-    the jobs were already delivered, so they never fail the run.
+    closed ones to Expired. At most recheck_limit a run. The jobs were already
+    delivered, so a problem never fails the run: it's logged, and kept as the
+    run's warning (stats).
     """
     try:
         ids = sinks.jobs_to_recheck(secrets, source, cfg.get("recheck_after_days", 3), EXPIRE_AFTER_DAYS)
@@ -403,6 +404,8 @@ def recheck_closed(cfg, secrets, source, session, collected, check_closed_fn):
         return moved
     except Exception as e:
         log.warning("Couldn't re-check the jobs in New for closed postings: %s", e)
+        if stats is not None:
+            stats["warning"] = f"Closed-posting re-check failed: {e}"[:2000]
         return 0
 
 
@@ -436,8 +439,10 @@ def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix=
     # load_settings() never raises: it falls back to the defaults.
     scraper_settings, version = sinks.load_settings(secrets)
     if not settings_module.enabled(scraper_settings, source):
-        # No run-log row: a switched-off site isn't a failed or empty run.
+        # A skipped row, so the dashboard can tell "switched off" from "didn't run".
         log.info("%s is switched off in the scraper settings; nothing to do.", source)
+        if not args.dry_run:
+            sinks.record_skipped(cfg, secrets, source, version)
         return
 
     with sinks.run_log(cfg, secrets, source, dry_run=args.dry_run) as stats:
@@ -477,11 +482,13 @@ def scrape(args, source, api_module, collect_fn, evaluate_fn, seen_file, prefix=
             log.warning("No credentials for any output (%s); wrote CSVs instead.", ", ".join(missing))
             return
         sinks.deliver(outputs, missing, kept, filtered, expired)
+        # From here on the run counts as ok: a problem becomes a warning.
+        stats["delivered"] = True
         # The cache file: only a fallback now (runs without database credentials).
         save_seen(seen, [r["id"] for r in kept + filtered] + expired + [r["repost_key"] for r in kept],
                   cfg["seen_ids_retention_days"], seen_file)
         if check_closed_fn:
-            recheck_closed(cfg, secrets, source, session, jobs, check_closed_fn)
+            recheck_closed(cfg, secrets, source, session, jobs, check_closed_fn, stats)
 
 
 def run(args):

@@ -9,11 +9,13 @@ Supabase is written through its REST API (PostgREST) with the secret key,
 which bypasses row-level security. Never use that key in the frontend.
 """
 
+import json
 import logging
 import os
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import requests
 
@@ -324,46 +326,145 @@ def deliver(sinks, missing, kept, filtered, expired=()):
 
 # ===== Run log (public.scrape_runs) ==========================================
 
+# Run-log writes that failed, for the workflow's last step to replay
+# (close_runs.py): a failed write must not leave a finished run "running".
+PENDING_RUNS_FILE = Path(__file__).resolve().parent / "data" / "pending_runs.json"
+
+# Columns a database without the latest migrations may lack; dropped and
+# retried rather than losing the whole write.
+NEWER_COLUMNS = ("settings_version", "status", "warning")
+
+
+def run_start_row(source):
+    """A new scrape_runs row: this GitHub run, and the dispatch that started it (if any)."""
+    row = {"source": source, "github_run_id": os.environ.get("GITHUB_RUN_ID")}
+    dispatch_id = os.environ.get("DISPATCH_ID", "").strip()
+    if dispatch_id.isdigit():
+        row["dispatch_id"] = int(dispatch_id)
+    return row
+
+
+def save_pending_run(entry, path=None):
+    """Adds a run-log write ({"id": ..., "values": ...} or {"insert": row}) to the pending file."""
+    path = path or PENDING_RUNS_FILE
+    try:
+        pending = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(json.dumps(pending + [entry]), encoding="utf-8")
+    except Exception as e:
+        log.warning("Couldn't save the run-log write for later either: %s", e)
+
+
+def write_run(client, run_id, row):
+    """
+    Updates (run_id) or inserts the run's row, without the newer columns if the
+    database lacks them. Raises if it still fails.
+    """
+    def attempt(values):
+        if run_id is None:
+            client.insert_one("scrape_runs", values)
+        else:
+            client.update("scrape_runs", {"id": run_id}, values)
+
+    try:
+        attempt(row)
+    except Exception as e:
+        older = {k: v for k, v in row.items() if k not in NEWER_COLUMNS}
+        if older == row:
+            raise
+        attempt(older)
+        log.warning("scrape_runs lacks newer columns (%s); push the migrations", e)
+
+
 @contextmanager
 def run_log(cfg, secrets, source, dry_run=False):
     """
-    Records the run in scrape_runs: a row when it starts, then counts (or the
-    error) when it ends. Yields a dict for the caller to fill with counts.
-    Does nothing for dry runs or when Supabase isn't an output. A problem
-    writing the log never fails the run itself.
+    Records the run in scrape_runs: a row when it starts (status running), then
+    counts and status when it ends. Yields a dict for the caller to fill with
+    counts; set "delivered" once the jobs reached every output, and "warning"
+    for a problem after that.
+
+    Ends as failed (with the error) if the run raised before delivering; as ok
+    otherwise, with an error after delivering kept as a warning instead of
+    failing the run. Does nothing for dry runs or when Supabase isn't an
+    output. A problem writing the log never fails the run: a start that
+    couldn't be written is inserted whole at the end, and an end that couldn't
+    be written is saved for the workflow's last step (close_runs.py).
     """
     stats = {}
     client = None if dry_run or "supabase" not in output_names(cfg, source) else supabase_client(secrets)
     run_id = None
+    start = run_start_row(source)
+    started_at = datetime.now(timezone.utc).isoformat()
     if client:
         try:
-            run_id = client.insert_one("scrape_runs", {
-                "source": source, "github_run_id": os.environ.get("GITHUB_RUN_ID")})["id"]
+            run_id = client.insert_one("scrape_runs", start)["id"]
         except Exception as e:
-            log.warning("Couldn't record the run in scrape_runs: %s", e)
+            log.warning("Couldn't record the run's start in scrape_runs (%s); it's written at the end", e)
 
     def finish(error=None):
-        if run_id is None:
+        if not client:
             return
-        values = {**stats, "error": error, "finished_at": datetime.now(timezone.utc).isoformat()}
+        delivered = stats.pop("delivered", False)
+        if error and delivered:
+            log.warning("The jobs were delivered, so the run counts as ok; problem after that: %s", error)
+            stats["warning"] = "; ".join(filter(None, [stats.get("warning"), error]))[:2000]
+            error = None
+        values = {**stats, "status": "failed" if error else "ok", "error": error,
+                  "finished_at": datetime.now(timezone.utc).isoformat()}
+        row = values if run_id is not None else {**start, "started_at": started_at, **values}
         try:
-            client.update("scrape_runs", {"id": run_id}, values)
+            write_run(client, run_id, row)
         except Exception as e:
-            # A database without the settings migration has no settings_version
-            # column; keep the counts rather than losing the whole update.
-            if "settings_version" in values:
-                values.pop("settings_version")
-                try:
-                    client.update("scrape_runs", {"id": run_id}, values)
-                    log.warning("scrape_runs has no settings_version column yet (%s); push the migrations", e)
-                    return
-                except Exception as retry_error:
-                    e = retry_error
-            log.warning("Couldn't update the run in scrape_runs: %s", e)
+            log.warning("Couldn't record the run's end in scrape_runs (%s); the workflow's last step "
+                        "retries it", e)
+            save_pending_run({"id": run_id, "values": values} if run_id is not None else {"insert": row})
 
     try:
         yield stats
     except Exception as e:
+        delivered = stats.get("delivered", False)
         finish(f"{type(e).__name__}: {e}"[:2000])
-        raise
+        if not delivered:
+            raise
+        log.exception("Problem after the jobs were delivered")
+        return
     finish()
+
+
+def record_skipped(cfg, secrets, source, settings_version):
+    """A row for a run that did nothing because the site is switched off (status skipped)."""
+    if "supabase" not in output_names(cfg, source):
+        return
+    client = supabase_client(secrets)
+    if not client:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        write_run(client, None, {**run_start_row(source), "status": "skipped", "finished_at": now,
+                                 "settings_version": settings_version})
+    except Exception as e:
+        log.warning("Couldn't record the skipped run in scrape_runs: %s", e)
+
+
+def close_unfinished_runs(client, github_run_id, path=None):
+    """
+    The workflow's last step: replays run-log writes that failed (the pending
+    file), then marks this GitHub run's rows still running as interrupted (a
+    step was cancelled or timed out before its scraper could finish). Returns
+    how many were interrupted.
+    """
+    path = path or PENDING_RUNS_FILE
+    if path.exists():
+        for entry in json.loads(path.read_text(encoding="utf-8")):
+            if "insert" in entry:
+                write_run(client, None, entry["insert"])
+            else:
+                write_run(client, entry["id"], entry["values"])
+        path.unlink()
+    running = client.select("scrape_runs", {
+        "select": "id", "github_run_id": f"eq.{github_run_id}", "status": "eq.running"})
+    for row in running:
+        client.update("scrape_runs", {"id": row["id"]},
+                      {"status": "interrupted", "finished_at": datetime.now(timezone.utc).isoformat()})
+    return len(running)

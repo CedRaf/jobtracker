@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 import sinks
@@ -230,8 +232,8 @@ def test_deliver_fails_when_an_output_has_no_credentials():
 
 
 class FakeClient:
-    def __init__(self):
-        self.inserted, self.updates = [], []
+    def __init__(self, running=()):
+        self.inserted, self.updates, self.running = [], [], list(running)
 
     def insert_one(self, table, row, select="id"):
         self.inserted.append((table, row))
@@ -239,6 +241,18 @@ class FakeClient:
 
     def update(self, table, match, values):
         self.updates.append((table, match, values))
+
+    def select(self, table, params):
+        return [{"id": i} for i in self.running]
+
+
+@pytest.fixture(autouse=True)
+def pending_file(monkeypatch, tmp_path):
+    """Run-log writes saved for later go to a temporary file, never scraper/data/."""
+    path = tmp_path / "pending_runs.json"
+    monkeypatch.setattr(sinks, "PENDING_RUNS_FILE", path)
+    monkeypatch.delenv("DISPATCH_ID", raising=False)
+    return path
 
 
 @pytest.fixture
@@ -259,13 +273,100 @@ def test_run_log_records_counts(fake_client):
     table, match, values = fake_client.updates[0]
     assert match == {"id": 7}
     assert values["found"] == 10 and values["kept"] == 2 and values["error"] is None
-    assert values["finished_at"]
+    assert values["status"] == "ok" and values["finished_at"]
+
+
+def test_run_log_records_the_dispatch_that_started_it(fake_client, monkeypatch):
+    monkeypatch.setenv("DISPATCH_ID", "42")
+    with sinks.run_log(CFG, {}, "jobstreet"):
+        pass
+    assert fake_client.inserted[0][1]["dispatch_id"] == 42
 
 
 def test_run_log_records_errors_and_reraises(fake_client):
     with pytest.raises(ValueError), sinks.run_log(CFG, {}, "jobstreet"):
         raise ValueError("JobStreet changed its API")
-    assert fake_client.updates[0][2]["error"] == "ValueError: JobStreet changed its API"
+    values = fake_client.updates[0][2]
+    assert values["error"] == "ValueError: JobStreet changed its API" and values["status"] == "failed"
+
+
+def test_a_problem_after_delivery_is_a_warning_not_a_failure(fake_client):
+    with sinks.run_log(CFG, {}, "jobstreet") as stats:
+        stats["delivered"] = True
+        raise OSError("disk full")  # e.g. saving the cache file
+    values = fake_client.updates[0][2]
+    assert values["status"] == "ok" and values["error"] is None
+    assert values["warning"] == "OSError: disk full" and "delivered" not in values
+
+
+def test_a_warning_set_during_the_run_is_kept(fake_client):
+    with sinks.run_log(CFG, {}, "jobstreet") as stats:
+        stats.update(delivered=True, warning="Closed-posting re-check failed: 503")
+    values = fake_client.updates[0][2]
+    assert values["status"] == "ok" and values["warning"] == "Closed-posting re-check failed: 503"
+
+
+def test_a_start_that_couldnt_be_written_is_inserted_at_the_end(fake_client):
+    calls = []
+
+    def insert_one(table, row, select="id"):
+        calls.append(row)
+        if len(calls) == 1:
+            raise RuntimeError("supabase down")
+        return {"id": 8}
+
+    fake_client.insert_one = insert_one
+    with sinks.run_log(CFG, {}, "jobstreet") as stats:
+        stats["kept"] = 3
+    assert len(calls) == 2
+    assert calls[1]["source"] == "jobstreet" and calls[1]["status"] == "ok" and calls[1]["kept"] == 3
+    assert calls[1]["started_at"] < calls[1]["finished_at"]
+
+
+def test_an_end_that_couldnt_be_written_is_saved_for_the_last_step(fake_client, pending_file):
+    def update(table, match, values):
+        raise RuntimeError("supabase down")
+
+    fake_client.update = update
+    with sinks.run_log(CFG, {}, "jobstreet") as stats:
+        stats["kept"] = 3
+    (entry,) = json.loads(pending_file.read_text(encoding="utf-8"))
+    assert entry["id"] == 7 and entry["values"]["status"] == "ok" and entry["values"]["kept"] == 3
+
+
+def test_an_older_database_gets_the_end_without_the_newer_columns(fake_client):
+    def update(table, match, values):
+        if "status" in values:
+            raise RuntimeError("HTTP 400: column status does not exist")
+        fake_client.updates.append((table, match, values))
+
+    fake_client.update = update
+    with sinks.run_log(CFG, {}, "jobstreet") as stats:
+        stats.update(kept=2, settings_version=3)
+    (_, _, values), = fake_client.updates
+    assert values["kept"] == 2 and "status" not in values and "settings_version" not in values
+
+
+def test_a_switched_off_site_gets_a_skipped_row(fake_client):
+    sinks.record_skipped(CFG, {}, "linkedin", 4)
+    (table, row), = fake_client.inserted
+    assert row["status"] == "skipped" and row["finished_at"] and row["settings_version"] == 4
+    sinks.record_skipped({"outputs": ["elsewhere"]}, {}, "linkedin", 4)
+    assert len(fake_client.inserted) == 1
+
+
+def test_the_last_step_replays_saved_writes_then_interrupts_what_is_left(pending_file):
+    pending_file.write_text(json.dumps([
+        {"id": 7, "values": {"status": "ok", "kept": 1}},
+        {"insert": {"source": "himalayas", "status": "failed", "error": "boom"}},
+    ]), encoding="utf-8")
+    client = FakeClient(running=[9])
+    assert sinks.close_unfinished_runs(client, "999") == 1
+    assert client.updates[0] == ("scrape_runs", {"id": 7}, {"status": "ok", "kept": 1})
+    assert client.inserted == [("scrape_runs", {"source": "himalayas", "status": "failed", "error": "boom"})]
+    table, match, values = client.updates[1]
+    assert match == {"id": 9} and values["status"] == "interrupted" and values["finished_at"]
+    assert not pending_file.exists()
 
 
 def test_run_log_skips_dry_runs_and_runs_without_supabase(fake_client):

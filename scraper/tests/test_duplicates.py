@@ -145,9 +145,19 @@ def test_a_switched_off_site_does_nothing(monkeypatch, tmp_path):
                         lambda path, default=None: {} if path == scraper.CONFIG_FILE else default)
     off = sinks.settings_module.validate({"sources": {"himalayas": {"enabled": False}}})
     monkeypatch.setattr(sinks, "load_settings", lambda secrets: (off, 9))
-    monkeypatch.setattr(sinks, "run_log", lambda *a, **kw: pytest.fail("no run-log row when switched off"))
+    monkeypatch.setattr(sinks, "run_log", lambda *a, **kw: pytest.fail("no running row when switched off"))
+    skipped = []
+    monkeypatch.setattr(sinks, "record_skipped",
+                        lambda cfg, secrets, source, version: skipped.append((source, version)))
 
     def collect(session, cfg):
         pytest.fail("a switched-off site makes no requests")
 
     scraper.scrape(Args(), "himalayas", None, collect, None, tmp_path / "seen.json")
+    assert skipped == []  # a dry run records nothing
+
+    class RealRun:
+        dry_run, limit = False, 0
+
+    scraper.scrape(RealRun(), "himalayas", None, collect, None, tmp_path / "seen.json")
+    assert skipped == [("himalayas", 9)]
