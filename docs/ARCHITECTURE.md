@@ -438,12 +438,12 @@ Components never call Supabase directly. Everything goes through one interface.
 
   Each site's step runs only if the `sources` input names it; blank (a manual run) means every site, and a switched-off site writes a skipped row and exits. The scheduler also passes `dispatch_id` (blank for manual runs).
 - Its secrets are `SUPABASE_URL` and `SUPABASE_SECRET_KEY`.
-- **`ci.yml`** runs on every push and pull request. The `scraper` job runs ruff + pytest; the `web` job runs `npm ci`, lint, Vitest and the build.
+- **`ci.yml`** runs on pushes to `main` and `testing`, and on pull requests. Feature branches are merged into `testing` (checks, no deployment), then `testing` into `main` (deployment). The `scraper` job runs ruff + pytest; the `web` job runs `npm ci`, lint, Vitest and the build.
 
 ### 7.3 Vercel (two projects, same repo, Root Directory `web`)
 - **Personal:** the default build, with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Optionally add `VITE_GITHUB_REPO` to get log links in the runs table.
 - **Demo:** built with `npm run build:demo` and **no** variables, so it can't reach real data.
-- **Both redeploy on every push to `main`.** `web/vercel.json` rewrites every path to `index.html`, so deep links work.
+- **Both redeploy on every push to `main`, and only then.** `web/vercel.json` turns off deployments for every other branch (`git.deploymentEnabled`: `"**": false`, `"main": true`), so feature and `testing` branches get no preview builds. It also rewrites every path to `index.html`, so deep links work.
 - **Environment variables are baked in at build time.** Redeploy after changing them.
 
 ### 7.4 Where secrets live

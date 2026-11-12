@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # testing: branches are merged there and checked before going to main.
+    branches: [main, testing]
   pull_request:
 
 jobs:
