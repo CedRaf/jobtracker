@@ -258,4 +258,5 @@ def test_run_uses_the_himalayas_source(monkeypatch):
     monkeypatch.setattr(hm.scraper, "scrape", lambda *a, **kw: calls.append((a, kw)))
     hm.run(None)
     (args, kwargs), = calls
-    assert args[1] == "himalayas" and args[2] is api and kwargs == {"prefix": "himalayas_"}
+    assert args[1] == "himalayas" and args[2] is api
+    assert kwargs == {"prefix": "himalayas_", "check_closed_fn": hm.check_closed}

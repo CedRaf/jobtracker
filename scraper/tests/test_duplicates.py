@@ -113,6 +113,7 @@ def test_scrape_filters_duplicates_before_evaluating(monkeypatch, tmp_path):
     monkeypatch.setattr(scraper, "load_json", lambda path, default=None: (
         {"outputs": [], "seen_ids_retention_days": 30} if path.name == "missing.json" else default))
     monkeypatch.setattr(sinks, "load_settings", lambda secrets: (sinks.settings_module.validate({}), None))
+    monkeypatch.setattr(sinks, "known_listings", lambda secrets, source: (set(), set()))
     monkeypatch.setattr(sinks, "recent_jobs", lambda *a: [
         {"source": "jobstreet", "title": "Junior Web Developer", "company": "Acme Inc."}])
     written = {}

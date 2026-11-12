@@ -642,3 +642,96 @@ def test_history_is_still_read_only(db):
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         with session(db, "authenticated", APP_USER) as conn:
             conn.execute("delete from public.status_history")
+
+
+# ---- the listing lifecycle (rollout 2) -----------------------------------------------
+
+
+def scrape_insert(conn, table, external_id, source="jobstreet"):
+    """An insert like the scraper's (ignore duplicates); returns how many rows went in."""
+    columns = "source, external_id, title, url" + (", reason" if table == "filtered_jobs" else "")
+    values = "%s, %s, 'Dev', 'https://example.test'" + (", 'rule'" if table == "filtered_jobs" else "")
+    return conn.execute(f"insert into public.{table} ({columns}) values ({values}) on conflict do nothing",
+                        [source, external_id]).rowcount
+
+
+def test_a_kept_listing_is_never_also_filtered(db):
+    with session(db, "service_role") as conn:
+        assert scrape_insert(conn, "filtered_jobs", "applied") == 0  # 'applied' is in jobs
+        assert scrape_insert(conn, "filtered_jobs", "fresh") == 1
+
+
+def test_a_filtered_listing_is_never_also_kept(db):
+    with session(db, "service_role") as conn:
+        scrape_insert(conn, "filtered_jobs", "dropped")
+        assert scrape_insert(conn, "jobs", "dropped") == 0
+        assert job(conn, "dropped") is None
+
+
+def test_the_same_id_on_another_site_is_a_different_listing(db):
+    with session(db, "service_role") as conn:
+        scrape_insert(conn, "filtered_jobs", "42", source="linkedin")
+        assert scrape_insert(conn, "jobs", "42", source="jobstreet") == 1
+
+
+def test_already_closed_listings_are_kept_from_the_dashboard(db):
+    with session(db, "service_role") as conn:
+        conn.execute("insert into public.expired_listings (source, external_id) values ('linkedin', '9')")
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        with session(db, "authenticated", APP_USER) as conn:
+            conn.execute("select * from public.expired_listings")
+
+
+def found_days_ago(conn, days, external_id="new"):
+    conn.execute("""update public.jobs set first_seen = now() - make_interval(days => %s)
+                    where external_id = %s""", [days, external_id])
+
+
+def recheck(conn, source="jobstreet"):
+    return [r[0] for r in conn.execute("select public.jobs_to_recheck(%s)", [source]).fetchall()]
+
+
+def test_new_jobs_aged_3_to_15_days_are_rechecked(db):
+    with session(db, "postgres") as conn:
+        expiry_started(conn, 30)
+        for external_id, days in [("new", 5), ("applied", 5)]:
+            conn.execute("""update public.jobs set first_seen = now() - make_interval(days => %s),
+                                                   status_changed_at = null
+                            where external_id = %s""", [days, external_id])
+        assert recheck(conn) == ["new"]  # 'applied' isn't in New
+        found_days_ago(conn, 1)
+        assert recheck(conn) == []  # too young
+        found_days_ago(conn, 16)
+        assert recheck(conn) == []  # expires by age instead
+
+
+def test_the_older_backlog_is_never_rechecked(db):
+    with session(db, "postgres") as conn:
+        found_days_ago(conn, 5)
+        assert recheck(conn) == []  # in New since before expiry started
+
+
+def test_closed_postings_move_to_expired(db):
+    with session(db, "postgres") as conn:
+        expiry_started(conn, 30)
+        found_days_ago(conn, 5)
+        moved = conn.execute("select public.expire_closed_jobs('jobstreet', array['new', 'applied', 'nope'])")
+        assert moved.fetchone()[0] == 1  # only the job in New
+        assert job(conn, "new")["status"] == "expired" and job(conn, "applied")["status"] == "applied"
+        assert history(conn, "new") == [("new", "expired", "expiry", False)]
+
+
+def test_closed_postings_from_the_backlog_are_left_alone(db):
+    with session(db, "postgres") as conn:
+        moved = conn.execute("select public.expire_closed_jobs('jobstreet', array['new'])")
+        assert moved.fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("call", [
+    "select public.jobs_to_recheck('jobstreet')",
+    "select public.expire_closed_jobs('jobstreet', array['new'])",
+])
+def test_only_the_scraper_rechecks(db, call):
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        with session(db, "authenticated", APP_USER) as conn:
+            conn.execute(call)

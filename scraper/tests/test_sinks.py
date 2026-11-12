@@ -208,7 +208,7 @@ class RecordingSink:
     def __init__(self, name, fail=False):
         self.name, self.fail, self.calls = name, fail, 0
 
-    def write(self, kept, filtered):
+    def write(self, kept, filtered, expired=()):
         self.calls += 1
         if self.fail:
             raise RuntimeError("down")
