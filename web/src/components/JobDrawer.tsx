@@ -19,6 +19,7 @@ import { ApplicationFields } from './ApplicationFields'
 import { APPLIED_STATUSES } from '../lib/application'
 import { CompanyAvatar } from './CompanyAvatar'
 import { DraftEmailButton } from './DraftEmail'
+import { StarButton } from './StarButton'
 import { StatusDot, StatusSelect } from './StatusControl'
 import { useChangeStatus } from './useChangeStatus'
 import { EntryLevelTag, FlagTags, SkillTags } from './Tags'
@@ -90,11 +91,16 @@ export function JobDrawer({ job, onClose, position, onPrev, onNext }: Props) {
       size={screens.md ? 720 : '100%'}
       destroyOnHidden
       title={job?.title}
-      extra={job?.url && (
-        <Button href={job.url} target="_blank" rel="noreferrer" icon={<ExportOutlined />}
-          aria-label={screens.sm ? undefined : 'Open listing'}>
-          {screens.sm && 'Open listing'}
-        </Button>
+      extra={job && (
+        <Flex gap={4} align="center">
+          <StarButton job={job} size="middle" />
+          {job.url && (
+            <Button href={job.url} target="_blank" rel="noreferrer" icon={<ExportOutlined />}
+              aria-label={screens.sm ? undefined : 'Open listing'}>
+              {screens.sm && 'Open listing'}
+            </Button>
+          )}
+        </Flex>
       )}
       footer={position && position.index >= 0 && (
         <Flex justify="space-between" align="center">

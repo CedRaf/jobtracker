@@ -33,6 +33,7 @@ export function JobFiltersBar({ jobs, filters, onChange }: Props) {
 
 function FilterControls({ jobs, filters, onChange, onHide, phone }: Props & { onHide?: () => void; phone: boolean }) {
   const options = filterOptions(jobs)
+  const starredCount = jobs.filter((j) => j.starred_at !== null).length
   const set = <K extends keyof JobFilters>(key: K, value: JobFilters[K]) => onChange({ ...filters, [key]: value })
   const toOptions = (values: string[]) => values.map((value) => ({ value, label: value }))
   const multi = { mode: 'multiple' as const, allowClear: true, maxTagCount: 'responsive' as const }
@@ -66,6 +67,9 @@ function FilterControls({ jobs, filters, onChange, onHide, phone }: Props & { on
         )}
         <Flex gap={8} align="center" justify="space-between" style={{ width: phone ? '100%' : undefined }}>
           <Flex gap={4} wrap>
+            <Checkbox checked={filters.starredOnly} onChange={(e) => set('starredOnly', e.target.checked)}>
+              Starred only{starredCount > 0 && <span className="tabular"> ({starredCount})</span>}
+            </Checkbox>
             <Checkbox checked={filters.entryLevelOnly} onChange={(e) => set('entryLevelOnly', e.target.checked)}>
               Entry-level only
             </Checkbox>
