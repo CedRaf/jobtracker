@@ -12,6 +12,7 @@ import { CompanyAvatar } from '../components/CompanyAvatar'
 import { JobDrawer } from '../components/JobDrawer'
 import { LogApplicationButton } from '../components/LogApplication'
 import { StatusDot } from '../components/StatusControl'
+import { StarFilled } from '@ant-design/icons'
 import { useChangeStatus } from '../components/useChangeStatus'
 import { errorText, fromNow } from '../lib/format'
 import { STATUS_META } from '../lib/status'
@@ -247,7 +248,12 @@ function Card({ job, entry, overlay }: { job: Job; entry: EntryLevel; overlay?: 
       <Flex gap={10} align="start">
         <CompanyAvatar company={job.company} size={28} />
         <Flex vertical gap={2} style={{ minWidth: 0 }}>
-          <Typography.Text strong className="clamp-2" style={{ fontSize: 13 }}>{job.title}</Typography.Text>
+          <Typography.Text strong className="clamp-2" style={{ fontSize: 13 }}>
+            {job.starred_at && (
+              <StarFilled aria-label="Starred" style={{ color: token.colorWarning, fontSize: 12, marginInlineEnd: 4 }} />
+            )}
+            {job.title}
+          </Typography.Text>
           <Typography.Text type="secondary" ellipsis={{ tooltip: true }} style={{ fontSize: 12 }}>
             {job.company ?? 'Unknown company'} · {job.location ?? 'No location'}
           </Typography.Text>

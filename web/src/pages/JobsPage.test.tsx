@@ -46,6 +46,29 @@ it('marks entry-level jobs, lists them first, and can show only them', async () 
   expect(screen.getByText('Associate Software Engineer')).toBeInTheDocument()
 })
 
+it('stars and unstars a job from the table, and can show only starred jobs', async () => {
+  renderPage()
+  await screen.findByText('Junior Full Stack Developer')
+  // The demo has two starred jobs.
+  await userEvent.click(screen.getByLabelText(/Starred only/))
+  expect(screen.getByText('Junior Python Developer')).toBeInTheDocument()
+  expect(screen.queryByText('Junior Full Stack Developer')).not.toBeInTheDocument()
+
+  await userEvent.click(screen.getByLabelText(/Starred only/))
+  const star = screen.getByRole('button', { name: 'Star to come back to it: Junior Full Stack Developer' })
+  await userEvent.click(star)
+  // Starring doesn't open the job.
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  const unstar = await screen.findByRole('button', { name: 'Unstar: Junior Full Stack Developer' })
+  expect(unstar).toHaveAttribute('aria-pressed', 'true')
+
+  await userEvent.click(screen.getByLabelText(/Starred only/))
+  expect(screen.getByText('Junior Full Stack Developer')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Unstar: Junior Full Stack Developer' }))
+  expect(await screen.findByRole('button', { name: 'Star to come back to it: Junior Full Stack Developer' }))
+    .toBeInTheDocument()
+})
+
 describe('JobsPage', () => {
   it('lists active jobs and hides skipped/rejected ones by default', async () => {
     renderPage()

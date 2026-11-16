@@ -8,6 +8,7 @@ import { useJobs, useLatestScrapeRuns, useSourceLabel, useSources } from '../dat
 import { CompanyAvatar } from '../components/CompanyAvatar'
 import { JobDrawer } from '../components/JobDrawer'
 import { JobFiltersBar } from '../components/JobFiltersBar'
+import { StarButton } from '../components/StarButton'
 import { StatCards } from '../components/StatCards'
 import { StatusCell } from '../components/StatusControl'
 import { EntryLevelTag, FlagTags, ToneTag } from '../components/Tags'
@@ -57,8 +58,8 @@ export function JobsPage() {
   const [entryFirst, setEntryFirst] = useState(initialEntryFirst)
   const entryLevelOf = useEntryLevel()
   const [openKey, setOpenKey] = useState<string | null>(null)
-  // Jobs whose status changed in the table stay listed until the filters or
-  // tab change, so a row doesn't vanish the moment you mark it Skip.
+  // Jobs whose status or star changed in the table stay listed until the filters
+  // or tab change, so a row doesn't vanish the moment you mark it Skip or unstar it.
   const [kept, setKept] = useState<ReadonlySet<string>>(new Set())
 
   const all = useMemo(() => jobs.data ?? [], [jobs.data])
@@ -288,6 +289,7 @@ interface JobTableProps {
   entryLevelOf: (job: Job) => EntryLevel
   sortOrder: SortOrder
   onSortChange: (order: SortOrder) => void
+  /** A row's status or star changed: keep it listed even if it no longer matches. */
   onStatusChanged: (job: Job) => void
   onOpen: (job: Job) => void
 }
@@ -318,7 +320,10 @@ function JobTable({
       key: 'job',
       render: (_, job) => (
         <Flex vertical gap={8}>
-          <JobHeading job={job} isNew={isNewSince(job, lastVisit)} entry={entryLevelOf(job)} />
+          <Flex justify="space-between" align="start" gap={4}>
+            <JobHeading job={job} isNew={isNewSince(job, lastVisit)} entry={entryLevelOf(job)} />
+            <StarButton job={job} size="middle" onToggled={onStatusChanged} />
+          </Flex>
           {concerns(job.flags).length > 0 && <FlagTags flags={concerns(job.flags).slice(0, 2)} />}
           {/* One StatusCell in one place for both layouts, so the skip-reason prompt
               survives the switch from triage buttons to the select. */}
@@ -340,7 +345,8 @@ function JobTable({
       title: 'Job',
       key: 'job',
       render: (_, job) => (
-        <Flex gap={12} align="center" style={{ maxWidth: 460 }}>
+        <Flex gap={12} align="center" style={{ maxWidth: 490 }}>
+          <StarButton job={job} onToggled={onStatusChanged} />
           <CompanyAvatar company={job.company} />
           <JobHeading job={job} isNew={isNewSince(job, lastVisit)} entry={entryLevelOf(job)} />
         </Flex>
