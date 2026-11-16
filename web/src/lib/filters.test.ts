@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { makeJob } from '../test/fixtures'
-import { activeFilterCount, applyFilters, DEFAULT_FILTERS, filterOptions, isNewSince, NOT_LISTED, type JobFilters } from './filters'
+import type { Job } from '../data/types'
+import { activeFilterCount, applyFilters, DEFAULT_FILTERS, filterOptions, isNewSince, isStarred, NOT_LISTED, type JobFilters } from './filters'
 
 const ALL: JobFilters = { ...DEFAULT_FILTERS, statuses: [] }
 
@@ -50,6 +51,12 @@ describe('applyFilters', () => {
     const recent = makeJob({ external_id: 'd', first_seen: '2026-10-22T00:00:00Z' })
     expect(applyFilters([react, recent], { ...ALL, newOnly: true }, '2026-10-21T00:00:00Z').map((j) => j.external_id))
       .toEqual(['d'])
+  })
+
+  it('treats a job without starred_at (an old cached copy) as not starred', () => {
+    const cached = { ...makeJob({ external_id: 'f' }), starred_at: undefined } as unknown as Job
+    expect(isStarred(cached)).toBe(false)
+    expect(applyFilters([cached], { ...ALL, starredOnly: true }, null)).toEqual([])
   })
 
   it('can show only starred jobs', () => {

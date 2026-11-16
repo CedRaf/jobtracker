@@ -33,6 +33,12 @@ export const DEFAULT_FILTERS: JobFilters = {
   starredOnly: false,
 }
 
+/**
+ * Whether you starred the job. A missing value counts as not starred: jobs saved
+ * in the browser cache before starring existed have no starred_at at all.
+ */
+export const isStarred = (job: Pick<Job, 'starred_at'>) => !!job.starred_at
+
 /** Arrangement value for jobs that don't list one. */
 export const NOT_LISTED = 'Not listed'
 
@@ -66,7 +72,7 @@ export function applyFilters(
       f.skills.every((skill) => job.matched_skills.includes(skill)) &&
       (!f.newOnly || isNewSince(job, lastVisit)) &&
       (!f.entryLevelOnly || isEntryLevel(job)) &&
-      (!f.starredOnly || job.starred_at !== null)
+      (!f.starredOnly || isStarred(job))
     )
   })
 }

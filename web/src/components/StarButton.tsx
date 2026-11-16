@@ -3,6 +3,7 @@ import { App, Button, theme, Tooltip } from 'antd'
 import { StarFilled, StarOutlined } from '@ant-design/icons'
 import type { Job } from '../data/types'
 import { useUpdateJob } from '../data/hooks'
+import { isStarred } from '../lib/filters'
 import { errorText } from '../lib/format'
 
 /**
@@ -19,7 +20,7 @@ export function StarButton({ job, size = 'small', onToggled }: {
   const { token } = theme.useToken()
   const { message } = App.useApp()
   const update = useUpdateJob()
-  const starred = job.starred_at !== null
+  const starred = isStarred(job)
   const label = starred ? 'Unstar' : 'Star to come back to it'
 
   const toggle = (e: MouseEvent) => {

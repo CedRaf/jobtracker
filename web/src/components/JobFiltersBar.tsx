@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button, Card, Checkbox, Flex, Grid, Input, InputNumber, Select } from 'antd'
 import { FilterOutlined } from '@ant-design/icons'
 import type { Job } from '../data/types'
-import { activeFilterCount, DEFAULT_FILTERS, filterOptions, type JobFilters } from '../lib/filters'
+import { activeFilterCount, DEFAULT_FILTERS, filterOptions, isStarred, type JobFilters } from '../lib/filters'
 import { flagFilterOptions } from '../lib/flags'
 import { SHOW_MATCH_SCORE } from '../lib/settings'
 import { statusOptions } from '../lib/status'
@@ -33,7 +33,7 @@ export function JobFiltersBar({ jobs, filters, onChange }: Props) {
 
 function FilterControls({ jobs, filters, onChange, onHide, phone }: Props & { onHide?: () => void; phone: boolean }) {
   const options = filterOptions(jobs)
-  const starredCount = jobs.filter((j) => j.starred_at !== null).length
+  const starredCount = jobs.filter(isStarred).length
   const set = <K extends keyof JobFilters>(key: K, value: JobFilters[K]) => onChange({ ...filters, [key]: value })
   const toOptions = (values: string[]) => values.map((value) => ({ value, label: value }))
   const multi = { mode: 'multiple' as const, allowClear: true, maxTagCount: 'responsive' as const }

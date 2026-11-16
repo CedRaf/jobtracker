@@ -14,6 +14,7 @@ import { LogApplicationButton } from '../components/LogApplication'
 import { StatusDot } from '../components/StatusControl'
 import { StarFilled } from '@ant-design/icons'
 import { useChangeStatus } from '../components/useChangeStatus'
+import { isStarred } from '../lib/filters'
 import { errorText, fromNow } from '../lib/format'
 import { STATUS_META } from '../lib/status'
 import { useEntryLevel, type EntryLevel } from '../lib/entryLevel'
@@ -249,7 +250,7 @@ function Card({ job, entry, overlay }: { job: Job; entry: EntryLevel; overlay?: 
         <CompanyAvatar company={job.company} size={28} />
         <Flex vertical gap={2} style={{ minWidth: 0 }}>
           <Typography.Text strong className="clamp-2" style={{ fontSize: 13 }}>
-            {job.starred_at && (
+            {isStarred(job) && (
               <StarFilled aria-label="Starred" style={{ color: token.colorWarning, fontSize: 12, marginInlineEnd: 4 }} />
             )}
             {job.title}
