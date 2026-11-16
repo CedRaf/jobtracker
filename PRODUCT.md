@@ -30,7 +30,7 @@ A tool built for one person's real job search, fed by their own scraper and rule
 ## Capabilities and Constraints
 
 - Views: Jobs (JobStreet / LinkedIn tabs, summary cards that act as filters, filter bar, table, detail drawer) and Filtered (dropped jobs grouped by rule).
-- Editable fields on a job: `status`, `skip_reason`, `notes`, `email_drafted_at` only. Everything else is scraper-owned and read-only.
+- Editable fields on a job: `status`, `skip_reason`, `notes`, `email_drafted_at`, `starred_at` (your star) and the application-tracking fields only. Everything else is scraper-owned and read-only.
 - The match score is deliberately hidden (`SHOW_MATCH_SCORE = false`) and must stay hidden.
 - Flag categories in the UI must match the flags `scraper/rules.py` emits.
 - Stack is fixed: Vite + React 19 + TypeScript, Ant Design 6 components and theme tokens, TanStack Query, React Router, supabase-js. No Tailwind or other CSS frameworks.

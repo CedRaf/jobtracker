@@ -508,6 +508,23 @@ def test_recent_jobs_do_not_expire(db):
         assert conn.execute("select public.expire_stale_jobs()").fetchone()[0] == 0
 
 
+def test_starred_jobs_do_not_expire_for_sitting_in_new(db):
+    with session(db, "postgres") as conn:
+        expiry_started(conn, 30)
+        conn.execute("""update public.jobs set first_seen = now() - interval '16 days', starred_at = now()
+                        where external_id = 'new'""")
+        assert conn.execute("select public.expire_stale_jobs()").fetchone()[0] == 0
+        assert job(conn, "new")["status"] == "new"
+
+
+def test_dashboard_users_can_star_and_unstar_a_job(db):
+    with session(db, "authenticated", APP_USER) as conn:
+        conn.execute("update public.jobs set starred_at = now() where external_id = 'new'")
+        assert job(conn, "new")["starred_at"] is not None
+        conn.execute("update public.jobs set starred_at = null where external_id = 'new'")
+        assert job(conn, "new")["starred_at"] is None
+
+
 def test_dashboard_users_cannot_expire_jobs(db):
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         with session(db, "authenticated", APP_USER) as conn:
