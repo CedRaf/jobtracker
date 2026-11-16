@@ -51,6 +51,8 @@ export interface Job extends JobKey {
   skip_reason: string | null
   notes: string | null
   email_drafted_at: string | null
+  /** When you starred the job to come back to it; null = not starred. Not the scraper's `flags`. */
+  starred_at: string | null
   first_seen: string
   // How you applied (application tracking). 'unknown' until set.
   channel: ApplicationChannel
@@ -75,7 +77,7 @@ export const APPLICATION_FIELDS = [
 export type ApplicationFields = Pick<Job, (typeof APPLICATION_FIELDS)[number]>
 
 /** The columns the dashboard may change directly (the database only grants these). The status isn't one. */
-export type JobPatch = Partial<Pick<Job, 'skip_reason' | 'notes' | 'email_drafted_at'> & ApplicationFields>
+export type JobPatch = Partial<Pick<Job, 'skip_reason' | 'notes' | 'email_drafted_at' | 'starred_at'> & ApplicationFields>
 
 /** Extra details for a status move (public.change_job_status). */
 export interface MoveOptions {

@@ -23,6 +23,8 @@ interface Seed {
   email?: string
   source?: Job['source']
   notes?: string
+  /** Starred to come back to later. */
+  starred?: boolean
   /** The status changes behind `status`: [status, hours after first seen]. Default: statusPath(status). */
   path?: [JobStatus, number][]
   channel?: ApplicationChannel
@@ -34,8 +36,8 @@ const SEEDS: Seed[] = [
   { title: 'Junior Full Stack Developer', company: 'Lumen Labs', location: 'Cebu City, Cebu', arrangements: ['Hybrid'], score: 17, skills: ['TypeScript', 'React', 'Node.js', 'PostgreSQL', 'Git'], flags: ['+fresh grads OK'], hoursAgo: 3, salary: '₱30,000 – ₱40,000 per month', email: 'careers@lumenlabs.example' },
   { title: 'Associate Software Engineer', company: 'Harbor Systems', location: 'Cebu, Central Visayas', arrangements: ['On-site'], score: 14, skills: ['C#', '.NET', 'SQL', 'Git'], flags: ['+will train'], hoursAgo: 5 },
   { title: 'React Developer (Entry Level)', company: 'Northwind Digital', location: 'Taguig, Metro Manila', arrangements: ['Remote'], score: 15, skills: ['TypeScript', 'JavaScript', 'React', 'REST API'], missing: ['Next.js'], flags: ['+entry level'], hoursAgo: 8 },
-  { title: 'Junior Python Developer', company: 'Datasmith PH', location: 'Cebu City, Cebu', arrangements: ['Hybrid', 'Remote'], score: 11, skills: ['Python', 'pandas', 'SQL', 'Git'], missing: ['Django'], hoursAgo: 20, salary: '₱25,000 – ₱32,000 per month' },
-  { title: 'AI Engineer – Junior', company: 'Kestrel AI', location: 'Makati, Metro Manila', arrangements: ['Remote'], score: 13, skills: ['Python', 'AI/LLM', 'LangChain', 'Vector DB'], missing: ['AWS', 'Docker'], flags: ['!3+ yrs exp'], hoursAgo: 26 },
+  { starred: true, title: 'Junior Python Developer', company: 'Datasmith PH', location: 'Cebu City, Cebu', arrangements: ['Hybrid', 'Remote'], score: 11, skills: ['Python', 'pandas', 'SQL', 'Git'], missing: ['Django'], hoursAgo: 20, salary: '₱25,000 – ₱32,000 per month' },
+  { starred: true, title: 'AI Engineer – Junior', company: 'Kestrel AI', location: 'Makati, Metro Manila', arrangements: ['Remote'], score: 13, skills: ['Python', 'AI/LLM', 'LangChain', 'Vector DB'], missing: ['AWS', 'Docker'], flags: ['!3+ yrs exp'], hoursAgo: 26 },
   { title: 'Software Engineer Trainee', company: 'Blue Coral Tech', location: 'Mandaue City, Cebu', arrangements: ['On-site'], score: 9, skills: ['Java', 'SQL', 'JavaScript'], flags: ['!training bond', '+fresh grads OK'], status: 'skip', hoursAgo: 30, notes: '2-year bond, not worth it.' },
   { title: '.NET Developer (Junior)', company: 'Meridian Health IT', location: 'Cebu City, Cebu', arrangements: [], score: 12, skills: ['C#', '.NET', 'SQL'], missing: ['Angular'], flags: ['!no work arrangement listed'], status: 'applied', hoursAgo: 52 },
   { title: 'Junior Web Developer', company: 'Pixel & Pine', location: 'Lapu-Lapu City, Cebu', arrangements: ['On-site'], score: 7, skills: ['JavaScript', 'MySQL'], missing: ['PHP', 'Laravel'], flags: ['!off-stack (PHP, Laravel)'], status: 'rejected', hoursAgo: 70 },
@@ -230,6 +232,7 @@ export function demoJobs(): Job[] {
       skip_reason: s.status === 'skip' ? 'training bond' : null,
       notes: s.notes ?? null,
       email_drafted_at: s.status === 'emailed' ? ago(s.hoursAgo - 1) : null,
+      starred_at: s.starred ? ago(Math.max(0.5, s.hoursAgo / 2)) : null,
       first_seen: ago(s.hoursAgo),
       channel,
       resume_version: resume,

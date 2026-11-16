@@ -30,7 +30,7 @@ function manualJob(application: NewApplication, external_id: string, now: string
     source: 'manual', external_id, work_arrangements: [], work_type: null, salary_text: null, seniority: null,
     posted_at: null, apply_type: null, apply_link: null, match_score: 0, matched_skills: [], missing_skills: [],
     flags: [], emails: [], email_source: null, search_terms: [], status_changed_at: now, skip_reason: null,
-    email_drafted_at: null, first_seen: now, channel: 'unknown', resume_version: 'unknown', role_type: 'unknown',
+    email_drafted_at: null, starred_at: null, first_seen: now, channel: 'unknown', resume_version: 'unknown', role_type: 'unknown',
     work_setup: 'unknown', applied_at: null, first_response_at: null,
     ...application,
   }

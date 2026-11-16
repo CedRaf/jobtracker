@@ -10,7 +10,7 @@ const JOB_COLUMNS = [
   'source', 'external_id', 'title', 'company', 'location', 'work_arrangements', 'work_type',
   'salary_text', 'seniority', 'posted_at', 'apply_type', 'apply_link', 'match_score',
   'matched_skills', 'missing_skills', 'flags', 'emails', 'email_source', 'url', 'search_terms',
-  'status', 'status_changed_at', 'skip_reason', 'notes', 'email_drafted_at', 'first_seen',
+  'status', 'status_changed_at', 'skip_reason', 'notes', 'email_drafted_at', 'starred_at', 'first_seen',
   'channel', 'resume_version', 'role_type', 'work_setup', 'applied_at', 'first_response_at',
 ].join(',')
 
