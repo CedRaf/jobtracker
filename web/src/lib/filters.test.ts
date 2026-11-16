@@ -51,6 +51,12 @@ describe('applyFilters', () => {
     expect(applyFilters([react, recent], { ...ALL, newOnly: true }, '2026-10-21T00:00:00Z').map((j) => j.external_id))
       .toEqual(['d'])
   })
+
+  it('can show only starred jobs', () => {
+    const starred = makeJob({ external_id: 'e', starred_at: '2026-10-22T00:00:00Z' })
+    expect(applyFilters([react, starred], { ...ALL, starredOnly: true }, null).map((j) => j.external_id))
+      .toEqual(['e'])
+  })
 })
 
 describe('filterOptions', () => {

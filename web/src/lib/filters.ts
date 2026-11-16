@@ -17,6 +17,8 @@ export interface JobFilters {
   newOnly: boolean
   /** Only jobs with the Entry-level marker. */
   entryLevelOnly: boolean
+  /** Only jobs you starred. */
+  starredOnly: boolean
 }
 
 export const DEFAULT_FILTERS: JobFilters = {
@@ -28,6 +30,7 @@ export const DEFAULT_FILTERS: JobFilters = {
   skills: [],
   newOnly: false,
   entryLevelOnly: false,
+  starredOnly: false,
 }
 
 /** Arrangement value for jobs that don't list one. */
@@ -62,7 +65,8 @@ export function applyFilters(
       f.flags.every((key) => categories!.has(key)) &&
       f.skills.every((skill) => job.matched_skills.includes(skill)) &&
       (!f.newOnly || isNewSince(job, lastVisit)) &&
-      (!f.entryLevelOnly || isEntryLevel(job))
+      (!f.entryLevelOnly || isEntryLevel(job)) &&
+      (!f.starredOnly || job.starred_at !== null)
     )
   })
 }

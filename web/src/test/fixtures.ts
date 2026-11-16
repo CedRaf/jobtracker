@@ -27,6 +27,7 @@ export function makeJob(overrides: Partial<Job> = {}): Job {
     skip_reason: null,
     notes: null,
     email_drafted_at: null,
+    starred_at: null,
     first_seen: '2026-10-20T00:00:00Z',
     channel: 'unknown',
     resume_version: 'unknown',
