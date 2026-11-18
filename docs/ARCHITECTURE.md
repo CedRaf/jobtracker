@@ -144,7 +144,7 @@ web/                     the dashboard (Vite + React + TypeScript)
 ### 4.3 LinkedIn pacing (`config.json` → `"linkedin"`)
 - `max_pages_per_search` (3), `delay_seconds` (5, plus up to 1 s of random jitter) and `time_budget_minutes` (20).
 - **The budget** is a deadline shared by the searches and the detail checks. When it runs out, the run wraps up, delivers, and leaves the unchecked jobs unseen for the next run.
-- If the scraper is rate-limited before *any* search returns results, the run raises an error, so Scraper health shows it as failed.
+- If the scraper is rate-limited before *any* search returns results, the run raises `SiteBlocked`: the run log records it as failed (so Scraper health shows it), but the step exits 0 and sets its `blocked` output, so the workflow emails you about the rate limit (`notify_blocked.py`) instead of failing. Any other error that leaves no results still fails the step.
 - `scraper.yml` also gives the LinkedIn step a 30-minute hard limit.
 - **Why:** LinkedIn throttles logged-out requests from shared cloud IPs like GitHub's. The old 15/45/90-second retries once turned a bad day into a 45-minute cancelled run that saved nothing.
 
@@ -432,13 +432,14 @@ Components never call Supabase directly. Everything goes through one interface.
   1. restore the seen-ID caches;
   2. JobStreet;
   3. LinkedIn (30-minute step limit);
-  4. Himalayas (10-minute step limit);
-  5. close unfinished runs (`close_runs.py`, always runs): replay run-log writes that failed, and mark rows a cancelled or timed-out step left `running` as `interrupted`;
-  6. save the caches;
-  7. upload the logs.
+  4. email the LinkedIn rate limit (`notify_blocked.py`, only when step 3 was rate-limited before any results): a short email from your Gmail to itself with the time, reason and run link. Without the Gmail secrets, or if Gmail refuses, it logs a warning and the run carries on;
+  5. Himalayas (10-minute step limit);
+  6. close unfinished runs (`close_runs.py`, always runs): replay run-log writes that failed, and mark rows a cancelled or timed-out step left `running` as `interrupted`;
+  7. save the caches;
+  8. upload the logs.
 
   Each site's step runs only if the `sources` input names it; blank (a manual run) means every site, and a switched-off site writes a skipped row and exits. The scheduler also passes `dispatch_id` (blank for manual runs).
-- Its secrets are `SUPABASE_URL` and `SUPABASE_SECRET_KEY`.
+- Its secrets are `SUPABASE_URL` and `SUPABASE_SECRET_KEY`, plus optional `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD` for the rate-limit email (an app password from myaccount.google.com/apppasswords; needs 2-Step Verification).
 - **`ci.yml`** runs on pushes to `main` and `testing`, and on pull requests. Feature branches are merged into `testing` (checks, no deployment), then `testing` into `main` (deployment). The `scraper` job runs ruff + pytest; the `web` job runs `npm ci`, lint, Vitest and the build.
 
 ### 7.3 Vercel (two projects, same repo, Root Directory `web`)
@@ -454,6 +455,7 @@ Components never call Supabase directly. Everything goes through one interface.
 | Supabase secret key | GitHub Actions secrets; locally only in gitignored `scraper/secrets.json` (delete it when not needed) |
 | Supabase publishable key | Vercel (personal project) and `web/.env.local`; safe in the browser |
 | GitHub token for the scheduler | Supabase Vault secret `github_scraper_token` (`docs/SCHEDULER_SETUP.md`) |
+| Gmail app password (rate-limit email) | GitHub Actions secrets `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD` |
 | Email template | your browser's localStorage |
 
 No real secret has ever been committed (history checked 2026-10-26). The repo is public.

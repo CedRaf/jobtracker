@@ -50,6 +50,23 @@ NOT_IN_CSV = ("repost_key", "description")
 log = logging.getLogger("scraper")
 
 
+class SiteBlocked(RuntimeError):
+    """
+    The site refused this run's requests (LinkedIn rate-limiting) before any
+    jobs came back. The run log still records the run as failed, but the step
+    exits 0 and tells the workflow (report_blocked), which emails you about it
+    (notify_blocked.py) instead of failing the whole scrape.
+    """
+
+
+def report_blocked(reason):
+    """Sets the step's `blocked` output to the reason, when run in GitHub Actions."""
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as f:
+            f.write(f"blocked={' '.join(reason.split())}\n")
+
+
 def setup_logging(log_file=LOG_FILE):
     log_file.parent.mkdir(exist_ok=True)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S")
@@ -507,6 +524,10 @@ def main(run_fn=run, log_file=LOG_FILE, doc=__doc__):
     log.info("=== Run started%s ===", " (dry run)" if args.dry_run else "")
     try:
         run_fn(args)
+    except SiteBlocked as e:
+        log.warning("Run blocked: %s", e)
+        report_blocked(str(e))
+        return 0
     except Exception:
         log.exception("Run failed")
         return 1

@@ -2,6 +2,7 @@ import pytest
 
 import linkedin_api as api
 import LinkedIn_Scraper as li
+import scraper
 
 
 # ---- the client: one short retry, then RateLimited ------------------------------
@@ -92,13 +93,47 @@ def test_searches_stop_at_rate_limit_but_keep_results(monkeypatch, sleeps):
     assert len(calls) == 3  # no further searches after the rate limit
 
 
-def test_rate_limited_before_any_result_fails_the_run(monkeypatch, sleeps):
+def test_rate_limited_before_any_result_stops_the_run_as_blocked(monkeypatch, sleeps):
     def search(*a, **kw):
         raise api.RateLimited("HTTP 429")
 
     monkeypatch.setattr(api, "search", search)
-    with pytest.raises(RuntimeError, match="rate-limiting"):
+    with pytest.raises(scraper.SiteBlocked, match="rate-limiting"):
         li.collect(None, fresh_cfg())
+
+
+def test_every_search_failing_otherwise_still_fails_the_run(monkeypatch, sleeps):
+    def search(*a, **kw):
+        raise api.LinkedInError("HTTP 500")
+
+    monkeypatch.setattr(api, "search", search)
+    with pytest.raises(RuntimeError, match="Every search failed") as raised:
+        li.collect(None, fresh_cfg())
+    assert not isinstance(raised.value, scraper.SiteBlocked)
+
+
+def test_a_blocked_run_exits_cleanly_and_tells_the_workflow(monkeypatch, tmp_path):
+    output = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setattr("sys.argv", ["LinkedIn_Scraper.py"])
+    monkeypatch.setattr(scraper, "setup_logging", lambda log_file: None)
+
+    def run(args):
+        raise scraper.SiteBlocked("No LinkedIn results this run:\nrate-limited")
+
+    assert scraper.main(run, tmp_path / "log.txt", "doc") == 0
+    assert output.read_text(encoding="utf-8") == "blocked=No LinkedIn results this run: rate-limited\n"
+
+
+def test_other_errors_still_fail_the_step(monkeypatch, tmp_path):
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    monkeypatch.setattr("sys.argv", ["LinkedIn_Scraper.py"])
+    monkeypatch.setattr(scraper, "setup_logging", lambda log_file: None)
+
+    def run(args):
+        raise RuntimeError("Every search failed")
+
+    assert scraper.main(run, tmp_path / "log.txt", "doc") == 1
 
 
 @pytest.mark.parametrize("remote, expected", [

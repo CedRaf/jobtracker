@@ -86,7 +86,7 @@ def collect(session, cfg):
     max_pages = linkedin_settings(cfg)["max_pages_per_search"]
     budget = run_budget(cfg)
 
-    jobs, failures, too_old, stopped = {}, 0, 0, None
+    jobs, failures, too_old, stopped, rate_limited = {}, 0, 0, None, False
     for keyword, label, opts in searches:
         if stopped:
             break
@@ -99,7 +99,7 @@ def collect(session, cfg):
                 results = api.search(session, keyword, page, sort=cfg["sort"],
                                      listed_within_days=days, **opts)
             except api.RateLimited:
-                stopped = "LinkedIn is rate-limiting requests"
+                stopped, rate_limited = "LinkedIn is rate-limiting requests", True
                 break
             except (api.LinkedInError, requests.RequestException) as e:
                 log.warning("Search '%s' page %d failed: %s", label, page, e)
@@ -127,7 +127,9 @@ def collect(session, cfg):
     if stopped:
         log.warning("Stopped searching early: %s (%d jobs found so far)", stopped, len(jobs))
         if not jobs:
-            raise RuntimeError(f"No LinkedIn results this run: {stopped} before any search returned jobs.")
+            message = f"No LinkedIn results this run: {stopped} before any search returned jobs."
+            # A rate limit gets its own email (notify_blocked.py) instead of failing the workflow.
+            raise (scraper.SiteBlocked if rate_limited else RuntimeError)(message)
     if too_old:
         log.info("Skipped %d results listed more than %d days ago", too_old, days)
     if searches and failures >= len(searches):

@@ -83,6 +83,7 @@ jobs:
 
       # Same settings and timing as JobStreet; runs even if JobStreet failed.
       - name: Run LinkedIn scraper
+        id: linkedin
         if: ${{ !cancelled() && (inputs.sources == '' || contains(format(',{0},', inputs.sources), ',linkedin,')) }}
         # The scraper stops itself after its time budget (config.json
         # "linkedin", 20 min); this is the backstop, so a stuck LinkedIn step
@@ -95,6 +96,21 @@ jobs:
           DISPATCH_ID: ${{ inputs.dispatch_id }}
         working-directory: scraper
         run: python LinkedIn_Scraper.py ${LIMIT:+--limit "$LIMIT"}
+
+      # When LinkedIn rate-limits the run before any search returns jobs, the step
+      # above still succeeds (the run log records the run as failed) and sets its
+      # `blocked` output; this emails you about it instead of the workflow failing.
+      # Needs the GMAIL_ADDRESS and GMAIL_APP_PASSWORD secrets; without them it
+      # only logs a warning. Never fails the run.
+      - name: Email LinkedIn rate limit
+        if: ${{ !cancelled() && steps.linkedin.outputs.blocked != '' }}
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          BLOCKED: ${{ steps.linkedin.outputs.blocked }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: scraper
+        run: python notify_blocked.py
 
       # Himalayas' public JSON API: a handful of requests, no per-job fetches.
       - name: Run Himalayas scraper
