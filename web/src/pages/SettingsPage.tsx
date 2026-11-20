@@ -455,6 +455,10 @@ function ChecksTab() {
       <Form.Item name={['checks', 'night_shift']} label="Night shift, graveyard or NSD">
         <Radio.Group options={DROP_OR_OFF} optionType="button" />
       </Form.Item>
+      <Form.Item name={['checks', 'senior_role']} label="A senior role (“seeking a Senior Developer”, “Senior-level experience”)"
+        tooltip="Only when the description says the role itself is senior. “Guidance from senior team members” doesn't count.">
+        <Radio.Group options={DROP_OR_OFF} optionType="button" />
+      </Form.Item>
       <Form.Item name={['checks', 'foreign_hours']} label="US / UK hours or time zones">
         <Radio.Group options={DROP_OR_OFF} optionType="button" />
       </Form.Item>

@@ -10,6 +10,7 @@ export interface RuleLocation {
 /** Groups (see reasonGroup) that come from fixed checks rather than title rules. */
 const FIXED: Record<string, RuleLocation> = {
   'night shift': { tab: 'checks' },
+  'senior role': { tab: 'checks' },
   'US/foreign hours': { tab: 'checks' },
   'language requirement': { tab: 'checks' },
   '5+ years experience': { tab: 'checks' },
