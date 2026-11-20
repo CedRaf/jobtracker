@@ -163,6 +163,65 @@ def test_negated_night_shift_is_not_dropped(make_job, description):
     assert reason is None
 
 
+# ---- senior_role -------------------------------------------------------------
+
+
+@pytest.mark.parametrize("description, match", [
+    # Phrasings from real listings
+    ("Job Description\n We are looking for an experienced Senior Software Engineer – Automation",
+     "looking for an experienced Senior Software Engineer"),
+    ("Are you ready to take on an exciting opportunity as a Senior Software Engineer for a global platform?",
+     "as a Senior Software Engineer"),
+    ("We're looking for a senior Full-Stack Developer to build and evolve Sergio",
+     "looking for a senior Full-Stack Developer"),
+    ("We're looking for a senior, hands-on Shopify developer who builds",
+     "looking for a senior, hands-on Shopify developer"),
+    ("FPT Software is seeking two Middle-Senior SAP ABAP Developers to join",
+     "seeking two Middle-Senior SAP ABAP Developers"),
+    ("join our team as our Lead Developer.", "join our team as our Lead Developer"),
+    ("- Senior-level experience building and shipping full-stack web applications",
+     "Senior-level experience"),
+    ("The Role\nThis is a mid to senior level role.", "This is a mid to senior level role"),
+    ("Level/Seniority: Senior Engineer (5–10 years)", "Level/Seniority: Senior"),
+    ("Senior ML Engineer\nPay: $60–$120/hour", "Senior ML Engineer"),
+    # Title lines inside the description
+    ("About us...\nJob Title: Senior Software Engineer\nLocation: Remote",
+     "Job Title: Senior Software Engineer"),
+    ("Position - Sr. Developer (Remote)", "Position - Sr. Developer"),
+    ("Overview of the team.\nSenior Backend Engineer (Remote)\nWhat you'll do",
+     "Senior Backend Engineer Remote"),
+])
+def test_senior_role_in_the_description(description, match):
+    assert rules.senior_role(description) == match
+
+
+@pytest.mark.parametrize("description", [
+    # "Senior" about other people, or the future: real junior listings
+    "flows, and delivering scalable solutions with guidance from senior team members.",
+    "Your work will be reviewed, and you'll have support from senior developers.",
+    "- Clear growth path into senior QA, QA lead, automation testing, or product quality roles",
+    "Collaborate with business analysts and senior developers to translate specifications.",
+    "capable of aligning internal teams and influencing senior-level decision-makers.",
+    "You do not need to be a senior developer, but a strong technical foundation is essential.",
+    "We'll teach you the foundations of senior/principal-level engineering in weeks.",
+    "Work with stakeholders such as senior engineers and product managers.",
+    "You'll report to the Senior Software Engineer on the platform team.",
+    "Growth path:\n- Senior Developer\n- Tech Lead",
+    # Mid-level alone stays (only senior is dropped)
+    "We are seeking a Mid-Level Software Engineer to join our IT team.",
+    "This is a mid-level role suited for a developer who can work independently.",
+])
+def test_senior_wording_that_is_not_the_role(description):
+    assert rules.senior_role(description) is None
+
+
+def test_a_senior_role_is_dropped_with_its_wording(make_job):
+    reason, extra = rules.evaluate(make_job(title="Software Engineer"),
+                                   "We are looking for a Senior AI Engineer to join its team.")
+    assert reason == "senior role (looking for a Senior AI Engineer)"
+    assert extra == {}
+
+
 @pytest.mark.parametrize("description", [
     "Availability for overlap with U.S. business hours.",
     "Some overlap with US hours is needed for standups.",

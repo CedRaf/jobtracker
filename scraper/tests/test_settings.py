@@ -152,12 +152,13 @@ def test_migration_seeds_the_defaults():
     # Sections added after the migration (entry_level, sources) aren't in the seed;
     # versions without them use the defaults, so the rest must match exactly. The seed
     # has the old shared remote switch (search_remote_elsewhere) instead of one per site,
-    # and predates the title rules' "unless" words.
+    # and predates the title rules' "unless" words and the senior_role check.
     sql = next((ROOT / "supabase" / "migrations").glob("*_scraper_settings.sql")).read_text(encoding="utf-8")
     seed = json.loads(re.search(r"\$settings\$(.*?)\$settings\$", sql, re.S).group(1))
     added_later = {"entry_level", "sources"}
     expected = {k: v for k, v in defaults().items() if k not in added_later}
     expected["title_rules"] = [{k: v for k, v in r.items() if k != "unless"} for r in expected["title_rules"]]
+    expected["checks"] = {k: v for k, v in expected["checks"].items() if k != "senior_role"}
     seed_search = dict(seed["search"])
     assert seed_search.pop("search_remote_elsewhere") is True
     assert {**seed, "search": seed_search} == {
@@ -210,6 +211,20 @@ def test_description_checks_can_be_switched_off():
                      "experience": {"flag_years": None, "drop_years": None}})
     reason, extra = rules.evaluate(job(), text)
     assert reason is None and "yrs exp" not in extra["flags"]
+
+
+def test_senior_role_check_can_be_switched_off():
+    text = "We are seeking a Senior Full Stack Developer to lead our platform."
+    assert rules.evaluate(job(), text)[0] == "senior role (seeking a Senior Full Stack Developer)"
+    rules.configure({"checks": {"senior_role": "off"}})
+    assert rules.evaluate(job(), text)[0] is None
+
+
+def test_saved_versions_without_the_senior_check_drop_by_default():
+    # Versions saved before the check existed have no checks.senior_role.
+    clean = settings.validate({"checks": {"night_shift": "drop", "foreign_hours": "drop",
+                                          "language_requirement": "drop", "training_bond": "flag"}})
+    assert clean["checks"]["senior_role"] == "drop"
 
 
 def test_experience_thresholds_are_configurable():
