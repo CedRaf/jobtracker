@@ -47,6 +47,7 @@
   },
   "checks": {
     "night_shift": "drop",
+    "senior_role": "drop",
     "foreign_hours": "drop",
     "language_requirement": "drop",
     "training_bond": "flag"

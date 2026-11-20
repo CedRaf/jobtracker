@@ -5,9 +5,9 @@ What the rules look for comes from the scraper settings (settings.py:
 editable in the dashboard, defaults in default_settings.json):
 - DROP by title: each enabled title rule (seniority, internship, ...), unless
   the title also has one of that rule's "unless" words.
-- DROP by description: night shift, US/foreign hours (not just "overlap with
-  US hours"), language requirements (each can be switched off), and N+ years
-  of experience.
+- DROP by description: night shift, a senior role (senior_role), US/foreign
+  hours (not just "overlap with US hours"), language requirements (each can be
+  switched off), and N+ years of experience.
 - DROP hybrid/on-site outside Cebu (location_drop_reason), and a skill-match
   score below "min_match_score" (low_score_reason: not judged, but flagged,
   when the description is too short to score).
@@ -75,6 +75,52 @@ EXPERIENCE_PATTERNS = [
     # A level or skill with its years in brackets: "Senior Engineer (5–10 years)", "Java (3 years)".
     re.compile(r"\(\s*" + _YEARS + r"\s*\)", I),
 ]
+
+# ---- Senior role in the description ----
+# Only wording that makes *the role itself* senior. "Senior" alone is everywhere
+# in junior listings ("guidance from senior team members", "growth path into
+# senior roles"), so it never counts on its own. Mid-level alone doesn't count;
+# "mid-to-senior" and "middle-senior" do.
+# Each level word carries its own boundary, so "Sr." (ending in a full stop) works.
+_SENIOR = r"(?:senior\b|sr\b\.?|lead\b|mid[\s-]*to[\s-]*senior\b(?:[\s-]*level\b)?|middle[\s-]*senior\b)"
+_SENIOR_TITLE_WORD = r"(?:senior\b|sr\b\.?)"
+_ROLE = r"\b(?:developers?|engineers?|programmers?|architects?)\b"
+_UP_TO_ROLE = r"[^.\n]{0,40}?" + _ROLE  # "Senior Full Stack Developer": a few words, then the role
+SENIOR_ROLE_PATTERNS = [
+    # "looking for an experienced Senior Software Engineer", "seeking a Senior Full Stack
+    # Developer", "looking for a senior, hands-on Shopify developer", "seeking two
+    # Middle-Senior SAP ABAP Developers", "join our team as our Lead Developer".
+    re.compile(
+        r"\b(?:looking for|seeking|hiring|searching for|join\w*\b[^.\n]{0,40}?\bas)\s+"
+        r"(?:(?:an?|our|two|three|\d+)\s+)?"
+        r"(?:(?:experienced|skilled|highly[\s-]skilled|talented|motivated)\s+)?"
+        + _SENIOR + _UP_TO_ROLE, I),
+    # "an exciting opportunity as a Senior Software Engineer", "As Senior Developer, ...".
+    # Not "such as senior engineers and PMs".
+    re.compile(r"(?<!such )\bas\s+(?:(?:an?|our)\s+)?" + _SENIOR + _UP_TO_ROLE, I),
+    # The level stated outright: "Senior-level experience", "this is a senior role",
+    # "a mid to senior level role", "Level/Seniority: Senior".
+    re.compile(
+        r"\bsenior[\s-]level\s+experience\b"
+        r"|\bthis is an?\s+(?:mid[\s-]*to[\s-]*)?senior(?:[\s-]level)?\s+(?:role|position)\b"
+        r"|\bmid[\s-]*(?:to[\s-]*)?senior[\s-]*level\b"
+        r"|\blevel(?:\s*/\s*seniority)?\s*:\s*senior\b", I),
+    # A senior title line: "Job Title: Senior Software Engineer", "Position - Sr. Developer",
+    # or a line that is only the title (no bullet, nothing after it but brackets).
+    re.compile(r"\b(?:job\s+title|position|role)\s*[:\-–]\s*" + _SENIOR_TITLE_WORD + _UP_TO_ROLE, I),
+    re.compile(r"^[ \t]*" + _SENIOR_TITLE_WORD + _UP_TO_ROLE + r"[ \t]*(?:\([^)\n]*\))?[ \t]*:?[ \t]*$",
+               I | re.M),
+]
+
+
+def senior_role(description):
+    """The wording that says the role is senior, or None."""
+    for rx in SENIOR_ROLE_PATTERNS:
+        m = rx.search(description)
+        if m:
+            # Brackets would confuse the dashboard, which reads the match from "reason (match)".
+            return " ".join(re.sub(r"[()]", "", m.group(0)).split())
+    return None
 
 TRAINING_BOND = re.compile(
     r"\b(training bond|bond(?:ed)? (?:period|agreement|contract)|service agreement|"
@@ -264,6 +310,11 @@ def evaluate(job, description):
     if rules.checks["night_shift"] == "drop" and _unnegated(NIGHT_SHIFT, text):
         m = NIGHT_SHIFT.search(text)
         return f"night shift ({m.group(0)})", {}
+
+    if rules.checks["senior_role"] == "drop":
+        match = senior_role(description)
+        if match:
+            return f"senior role ({match})", {}
 
     years = required_years(description)
     drop_at, flag_at = rules.experience["drop_years"], rules.experience["flag_years"]

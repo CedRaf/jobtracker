@@ -201,6 +201,8 @@ export interface ScraperSettings {
   experience: { flag_years: number | null; drop_years: number | null }
   checks: {
     night_shift: DropOrOff
+    /** The description says the role itself is senior (scraper/rules.py senior_role). */
+    senior_role: DropOrOff
     foreign_hours: DropOrOff
     language_requirement: DropOrOff
     training_bond: 'flag' | 'off'

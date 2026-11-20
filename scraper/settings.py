@@ -25,6 +25,7 @@ SCHEMA = 1
 DROP_OR_OFF = ("drop", "off")
 CHECK_CHOICES = {
     "night_shift": DROP_OR_OFF,
+    "senior_role": DROP_OR_OFF,
     "foreign_hours": DROP_OR_OFF,
     "language_requirement": DROP_OR_OFF,
     "training_bond": ("flag", "off"),
